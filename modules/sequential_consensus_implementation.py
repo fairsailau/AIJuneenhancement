@@ -37,6 +37,7 @@ def categorize_document_with_sequential_consensus(
     Returns:
         Dictionary with categorization results and consensus information
     """
+    # Import directly from document_categorization_utils to avoid circular imports
     from modules.document_categorization_utils import (
         categorize_document,
         extract_document_features,
