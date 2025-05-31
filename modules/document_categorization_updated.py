@@ -20,16 +20,27 @@ from modules.sequential_consensus_implementation import (
     calculate_arbitration_confidence
 )
 
+# Import utility functions from the new utils file
+from modules.document_categorization_utils import (
+    categorize_document,
+    categorize_document_detailed,
+    combine_categorization_results,
+    extract_document_features,
+    calculate_multi_factor_confidence,
+    apply_confidence_calibration,
+    apply_confidence_thresholds
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# --- Merged Functions and UI from document_categorization (2).py and (3).py ---
+# --- UI and Integration Logic ---
 
 def document_categorization():
     """
     Enhanced document categorization with improved confidence metrics and user-defined types.
-    (Merged from versions 2 and 3)
+    Includes Standard, Parallel Consensus, and Sequential Consensus modes.
     """
     st.title("Document Categorization")
     
@@ -44,6 +55,7 @@ def document_categorization():
             st.rerun()
         return
     
+    # Initialize session state variables if they don't exist
     if "document_categorization" not in st.session_state:
         st.session_state.document_categorization = {
             "is_categorized": False,
@@ -77,6 +89,7 @@ def document_categorization():
     tab1, tab2 = st.tabs(["Categorization", "Settings"])
     
     with tab1:
+        # --- Model Selection UI (Common for all modes) ---
         all_models_with_desc = {
             "azure__openai__gpt_4_1_mini": "Azure OpenAI GPT-4.1 Mini: Lightweight multimodal model (Default for Box AI for Docs/Notes Q&A)",
             "google__gemini_2_0_flash_lite_preview": "Google Gemini 2.0 Flash Lite: Lightweight multimodal model (Preview)",
@@ -113,7 +126,7 @@ def document_categorization():
         for name in allowed_model_names:
             if name not in ai_models_with_desc:
                  ai_models_with_desc[name] = f"{name} (Description not found)"
-                 logger.warning(f"Model '{name}' from allowed list was missing description, added placeholder.")
+                 logger.warning(f"Model 	\'{name}\' from allowed list was missing description, added placeholder.")
         ai_model_names = list(ai_models_with_desc.keys())
         ai_model_options = list(ai_models_with_desc.values())
         
@@ -150,7 +163,6 @@ def document_categorization():
                 idx = min(2, len(ai_model_names) - 1)
                 st.session_state.categorization_model3 = ai_model_names[idx]
         
-        # Model selection UI
         st.write("### AI Model Selection")
         
         # Consensus mode selection
@@ -168,12 +180,12 @@ def document_categorization():
                                                         "parallel" if consensus_mode == "Parallel Consensus" else \
                                                         "sequential"
         
-        # Model selection based on consensus mode
+        # --- Model Selection UI based on Consensus Mode ---
         if st.session_state.categorization_consensus_mode == "standard":
             # Single model selection for standard mode
             current_model_name = st.session_state.categorization_ai_model
             if current_model_name not in ai_model_names:
-                logger.warning(f"Previously selected categorization model '{current_model_name}' is not allowed. Defaulting to '{ai_model_names[0]}'.")
+                logger.warning(f"Previously selected categorization model 	\'{current_model_name}\' is not allowed. Defaulting to 	\'{ai_model_names[0]}\''.")
                 current_model_name = ai_model_names[0]
                 st.session_state.categorization_ai_model = current_model_name
             
@@ -181,7 +193,7 @@ def document_categorization():
                 current_model_desc = ai_models_with_desc.get(current_model_name, ai_model_options[0])
                 selected_index = ai_model_options.index(current_model_desc)
             except (ValueError, KeyError):
-                logger.error(f"Error finding index for categorization model '{current_model_name}'. Defaulting to first model.")
+                logger.error(f"Error finding index for categorization model 	\'{current_model_name}\'. Defaulting to first model.")
                 selected_index = 0
                 current_model_name = ai_model_names[selected_index]
                 st.session_state.categorization_ai_model = current_model_name
@@ -361,6 +373,7 @@ def document_categorization():
             # Store the selected models for use in processing
             selected_model = st.session_state.categorization_model1  # Default for non-consensus operations
         
+        # --- Categorization Options and Controls ---
         st.write("### Categorization Options")
         col1_opt, col2_opt = st.columns(2)
         with col1_opt:
@@ -369,7 +382,7 @@ def document_categorization():
                 value=True,
                 key="use_two_stage_cat",
                 help="When enabled, documents with low confidence will undergo a second analysis",
-                disabled=st.session_state.categorization_consensus_mode == "sequential"  # Disable for sequential consensus
+                disabled=st.session_state.categorization_consensus_mode != "standard"  # Only enable for standard mode
             )
         with col2_opt:
             confidence_threshold = st.slider(
@@ -380,7 +393,7 @@ def document_categorization():
                 step=0.05,
                 key="confidence_threshold_cat",
                 help="Documents with confidence below this threshold will undergo second-stage analysis",
-                disabled=not use_two_stage or st.session_state.categorization_consensus_mode == "sequential"
+                disabled=not use_two_stage or st.session_state.categorization_consensus_mode != "standard"
             )
         
         col1_ctrl, col2_ctrl = st.columns(2)
@@ -389,6 +402,7 @@ def document_categorization():
         with col2_ctrl:
             cancel_button = st.button("Cancel Categorization", key="cancel_categorization_button_cat", use_container_width=True)
         
+        # --- Processing Logic ---
         if start_button:
             current_doc_types = st.session_state.get("document_types", [])
             valid_categories = [dtype["name"] for dtype in current_doc_types if isinstance(dtype, dict) and "name" in dtype]
@@ -544,6 +558,7 @@ def document_categorization():
                     else:
                         st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.")
         
+        # --- Results Display ---
         if st.session_state.document_categorization.get("is_categorized", False):
             display_categorization_results()
     
@@ -557,19 +572,125 @@ def document_categorization():
         with st.expander("Confidence Validation", expanded=False):
             validate_confidence_with_examples()
 
-# Import the rest of the original functions here
-from modules.document_categorization import (
-    categorize_document,
-    categorize_document_detailed,
-    combine_categorization_results,
-    extract_document_features,
-    calculate_multi_factor_confidence,
-    apply_confidence_calibration,
-    apply_confidence_thresholds,
-    configure_document_types,
-    configure_confidence_thresholds,
-    validate_confidence_with_examples
-)
+# --- UI Helper Functions (Settings, Results Display) ---
+
+def configure_document_types():
+    """
+    UI for configuring document types.
+    """
+    st.write("Define the categories you want to use for document classification.")
+    
+    # Use a list of dictionaries for document types
+    if "document_types" not in st.session_state:
+        st.session_state.document_types = []
+    
+    # Display existing types
+    for i, doc_type in enumerate(st.session_state.document_types):
+        col1, col2, col3 = st.columns([3, 5, 1])
+        with col1:
+            new_name = st.text_input(f"Name {i+1}", value=doc_type["name"], key=f"doc_type_name_{i}")
+        with col2:
+            new_desc = st.text_input(f"Description {i+1}", value=doc_type["description"], key=f"doc_type_desc_{i}")
+        with col3:
+            if st.button("❌", key=f"remove_doc_type_{i}", help="Remove this document type"):
+                st.session_state.document_types.pop(i)
+                st.rerun()
+                
+        # Update the dictionary in the list
+        st.session_state.document_types[i]["name"] = new_name
+        st.session_state.document_types[i]["description"] = new_desc
+    
+    # Add new type
+    if st.button("Add Document Type", key="add_doc_type_button"):
+        st.session_state.document_types.append({"name": f"New Type {len(st.session_state.document_types) + 1}", "description": ""})
+        st.rerun()
+
+def configure_confidence_thresholds():
+    """
+    UI for configuring confidence thresholds.
+    """
+    st.write("Set the confidence score thresholds for automatic acceptance, verification, and rejection.")
+    
+    if "confidence_thresholds" not in st.session_state:
+        st.session_state.confidence_thresholds = {
+            "auto_accept": 0.85,
+            "verification": 0.6,
+            "rejection": 0.4
+        }
+    
+    thresholds = st.session_state.confidence_thresholds
+    
+    # Ensure verification is always less than or equal to auto_accept
+    auto_accept = st.slider(
+        "Auto-Accept Threshold", 
+        min_value=0.0, max_value=1.0, 
+        value=thresholds["auto_accept"],
+        step=0.01,
+        key="auto_accept_slider",
+        help="Documents with confidence above this score will be marked as Auto-Accepted."
+    )
+    
+    verification = st.slider(
+        "Verification Threshold", 
+        min_value=0.0, max_value=auto_accept, # Max is auto_accept
+        value=min(thresholds["verification"], auto_accept), # Ensure initial value is valid
+        step=0.01,
+        key="verification_slider",
+        help="Documents with confidence between this score and Auto-Accept will be marked as Needs Verification."
+    )
+    
+    # Ensure rejection is always less than or equal to verification
+    rejection = st.slider(
+        "Rejection Threshold", 
+        min_value=0.0, max_value=verification, # Max is verification
+        value=min(thresholds["rejection"], verification), # Ensure initial value is valid
+        step=0.01,
+        key="rejection_slider",
+        help="Documents with confidence between this score and Verification will be marked as Likely Incorrect. Below this score is Low Confidence / Reject."
+    )
+    
+    # Update session state
+    st.session_state.confidence_thresholds = {
+        "auto_accept": auto_accept,
+        "verification": verification,
+        "rejection": rejection
+    }
+
+def validate_confidence_with_examples():
+    """
+    Show examples of how confidence scores map to statuses.
+    """
+    thresholds = st.session_state.confidence_thresholds
+    st.write("Example Statuses based on Current Thresholds:")
+    
+    examples = [0.95, 0.85, 0.75, 0.60, 0.50, 0.40, 0.30]
+    data = []
+    for conf in examples:
+        if conf >= thresholds["auto_accept"]:
+            status = "Auto-Accepted"
+            color = "green"
+        elif conf >= thresholds["verification"]:
+            status = "Needs Verification"
+            color = "orange"
+        elif conf >= thresholds["rejection"]:
+            status = "Likely Incorrect"
+            color = "red"
+        else:
+            status = "Low Confidence / Reject"
+            color = "darkred"
+        data.append({"Confidence": f"{conf:.2f}", "Status": status, "Color": color})
+        
+    df = pd.DataFrame(data)
+    
+    def color_status(val):
+        color = next((item["Color"] for item in data if item["Status"] == val), "black")
+        return f"color: {color}; font-weight: bold;"
+        
+    st.dataframe(
+        df.style.applymap(color_status, subset=["Status"]),
+        hide_index=True,
+        use_container_width=True
+    )
 
 def display_categorization_results():
     """
