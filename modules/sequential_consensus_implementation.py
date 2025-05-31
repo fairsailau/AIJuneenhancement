@@ -53,7 +53,15 @@ def categorize_document_with_sequential_consensus(
     model1_result["model_name"] = model1
     
     # Extract document features and calculate multi-factor confidence for Model 1
-    document_features = extract_document_features(file_id)
+    try:
+        document_features = extract_document_features(file_id)
+    except AttributeError as e:
+        logger.error(f"AttributeError extracting features in sequential_consensus for file {file_id}: {str(e)}. Using empty features.")
+        document_features = {}
+    except Exception as e:
+        logger.error(f"Unexpected error extracting features in sequential_consensus for file {file_id}: {str(e)}. Using empty features.")
+        document_features = {}
+
     valid_categories = [dtype["name"] for dtype in document_types_with_desc]
     
     model1_multi_factor_confidence = calculate_multi_factor_confidence(

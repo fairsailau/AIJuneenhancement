@@ -23,6 +23,15 @@ from modules.document_categorization_utils import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+UPDATED_MODEL_LIST = [
+    "azure__openai__gpt_4_1_mini", "azure__openai__gpt_4_1", "azure__openai__gpt_4o_mini", "azure__openai__gpt_4o",
+    "google__gemini_2_5_pro_preview", "google__gemini_2_5_flash_preview", "google__gemini_2_0_flash_001", "google__gemini_2_0_flash_lite_preview",
+    "aws__claude_3_haiku", "aws__claude_3_sonnet", "aws__claude_3_5_sonnet", "aws__claude_3_7_sonnet",
+    "aws__claude_4_sonnet", "aws__claude_4_opus", "aws__titan_text_lite",
+    "ibm__llama_3_2_90b_vision_instruct", "ibm__llama_4_scout",
+    "xai__grok_3_beta", "xai__grok_3_mini_reasoning_beta", "azure__openai__gpt_o3"
+]
+
 def document_categorization():
     """
     Main function for document categorization tab.
@@ -66,9 +75,14 @@ def document_categorization():
         
         if consensus_mode == "Standard":
             # Single model selection
+            default_standard_model = "google__gemini_2_0_flash_001"
+            if default_standard_model not in UPDATED_MODEL_LIST:
+                default_standard_model = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None
+
             model = st.selectbox(
                 "Select AI Model",
-                ["google__gemini_2_0_flash_001", "azure__openai__gpt_4_1", "aws__claude_3_sonnet", "anthropic__claude_3_5_sonnet"],
+                UPDATED_MODEL_LIST,
+                index=UPDATED_MODEL_LIST.index(default_standard_model) if default_standard_model in UPDATED_MODEL_LIST else 0,
                 help="Select the AI model to use for document categorization."
             )
             
@@ -93,21 +107,19 @@ def document_categorization():
         elif consensus_mode == "Parallel Consensus":
             # Multiple model selection
             st.write("Select models for parallel consensus:")
-            models = []
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.checkbox("Google Gemini 2.0 Flash", value=True):
-                    models.append("google__gemini_2_0_flash_001")
-                if st.checkbox("AWS Claude 3 Sonnet", value=True):
-                    models.append("aws__claude_3_sonnet")
-            
-            with col2:
-                if st.checkbox("Azure OpenAI GPT-4", value=True):
-                    models.append("azure__openai__gpt_4_1")
-                if st.checkbox("Anthropic Claude 3.5 Sonnet"):
-                    models.append("anthropic__claude_3_5_sonnet")
+            default_parallel_models = [
+                m for m in ["google__gemini_2_0_flash_001", "aws__claude_3_sonnet", "azure__openai__gpt_4_1"]
+                if m in UPDATED_MODEL_LIST
+            ]
+            if not default_parallel_models and UPDATED_MODEL_LIST: # Ensure at least one default if possible
+                default_parallel_models = [UPDATED_MODEL_LIST[0]]
+
+            models = st.multiselect(
+                "Select models for parallel consensus:",
+                options=UPDATED_MODEL_LIST,
+                default=default_parallel_models
+            )
             
             # Two-stage categorization option
             use_two_stage = st.checkbox(
@@ -132,17 +144,25 @@ def document_categorization():
             
             # Model 1 (Initial Analysis)
             st.write("#### Model 1 (Initial Analysis)")
+            default_model1 = "google__gemini_2_0_flash_001"
+            if default_model1 not in UPDATED_MODEL_LIST:
+                default_model1 = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None
             model1 = st.selectbox(
                 "Model 1 (Initial Analysis)",
-                ["google__gemini_2_0_flash_001", "azure__openai__gpt_4_1", "aws__claude_3_sonnet", "anthropic__claude_3_5_sonnet"],
+                UPDATED_MODEL_LIST,
+                index=UPDATED_MODEL_LIST.index(default_model1) if default_model1 in UPDATED_MODEL_LIST else 0,
                 help="This model will perform the initial document categorization."
             )
             
             # Model 2 (Expert Review)
             st.write("#### Model 2 (Expert Review)")
+            default_model2 = "aws__claude_3_sonnet"
+            if default_model2 not in UPDATED_MODEL_LIST:
+                default_model2 = UPDATED_MODEL_LIST[1] if len(UPDATED_MODEL_LIST) > 1 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None)
             model2 = st.selectbox(
                 "Model 2 (Expert Review)",
-                ["aws__claude_3_sonnet", "azure__openai__gpt_4_1", "google__gemini_2_0_flash_001", "anthropic__claude_3_5_sonnet"],
+                UPDATED_MODEL_LIST,
+                index=UPDATED_MODEL_LIST.index(default_model2) if default_model2 in UPDATED_MODEL_LIST else 0,
                 help="This model will review Model 1's categorization."
             )
             
@@ -150,9 +170,13 @@ def document_categorization():
             st.write("#### Model 3 will be used for arbitration only when needed:")
             
             # Model 3 (Arbitration)
+            default_model3 = "aws__claude_3_5_sonnet" # Changed from anthropic__claude_3_5_sonnet
+            if default_model3 not in UPDATED_MODEL_LIST:
+                default_model3 = UPDATED_MODEL_LIST[2] if len(UPDATED_MODEL_LIST) > 2 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None)
             model3 = st.selectbox(
                 "Model 3 (Arbitration)",
-                ["anthropic__claude_3_5_sonnet", "azure__openai__gpt_4_1", "aws__claude_3_sonnet", "google__gemini_2_0_flash_001"],
+                UPDATED_MODEL_LIST,
+                index=UPDATED_MODEL_LIST.index(default_model3) if default_model3 in UPDATED_MODEL_LIST else 0,
                 help="This model will arbitrate if there's significant disagreement between Models 1 and 2."
             )
             
@@ -601,25 +625,41 @@ def display_detailed_result(result):
         # Model 2 tab
         with model_tabs[1]:
             if "model2_result" in result:
-                model2 = result["model2_result"]
-                st.markdown(f"### Model: {model2.get('model_name', 'Unknown')}")
-                st.markdown(f"### Category: {model2.get('document_type', 'Unknown')}")
-                st.markdown(f"### Confidence: {model2.get('confidence', 0.0):.2f}")
+                model2_details = result["model2_result"]
+
+                # Check for and display Model 2's independent initial assessment
+                if "independent_assessment" in model2_details and isinstance(model2_details["independent_assessment"], dict):
+                    independent_assessment = model2_details["independent_assessment"]
+                    st.markdown("#### Model 2: Independent Initial Assessment")
+                    st.markdown(f"Independent Category: {independent_assessment.get('document_type', 'N/A')}")
+                    st.markdown(f"Independent Confidence: {independent_assessment.get('confidence', 0.0):.2f}")
+                    st.markdown("Independent Reasoning:")
+                    st.markdown(independent_assessment.get('reasoning', 'No reasoning provided'))
+                    st.markdown("---") # Visual separator
+                    st.markdown("#### Model 2: Final Review Assessment (after seeing Model 1)") # Title for the final review part
+                else:
+                    # If no independent assessment, still show a title for consistency or fallback
+                    st.markdown("#### Model 2: Review Assessment")
+
+                # Display Model 2's final (potentially reviewed) assessment
+                st.markdown(f"### Model: {model2_details.get('model_name', 'Unknown')}")
+                st.markdown(f"### Category: {model2_details.get('document_type', 'Unknown')}")
+                st.markdown(f"### Confidence: {model2_details.get('confidence', 0.0):.2f}")
                 
-                st.markdown("### Review Assessment:")
-                if "review_assessment" in model2:
-                    st.markdown(f"#### Agreement Level: {model2['review_assessment'].get('agreement_level', 'Unknown')}")
-                    st.markdown(f"#### Assessment Reasoning: {model2['review_assessment'].get('assessment_reasoning', 'No assessment provided')}")
+                st.markdown("### Review Assessment Details:") # Changed title for clarity
+                if "review_assessment" in model2_details:
+                    st.markdown(f"**Agreement Level:** {model2_details['review_assessment'].get('agreement_level', 'Unknown')}")
+                    st.markdown(f"**Assessment Reasoning:** {model2_details['review_assessment'].get('assessment_reasoning', 'No assessment provided')}")
                 
                 st.markdown("### Confidence Adjustment Factors:")
-                if "confidence_adjustment_factors" in model2:
-                    factors = model2["confidence_adjustment_factors"]
+                if "confidence_adjustment_factors" in model2_details:
+                    factors = model2_details["confidence_adjustment_factors"]
                     st.markdown(f"* Agreement Bonus: {factors.get('agreement_bonus', 0.0):.2f}")
                     st.markdown(f"* Disagreement Penalty: {factors.get('disagreement_penalty', 0.0):.2f}")
                     st.markdown(f"* Reasoning Quality: {factors.get('reasoning_quality', 0.0):.2f}")
                 
-                st.markdown("### Reasoning:")
-                st.markdown(model2.get("reasoning", "No reasoning provided"))
+                st.markdown("### Final Reasoning:") # Changed title for clarity
+                st.markdown(model2_details.get("reasoning", "No reasoning provided"))
         
         # Model 3 tab
         with model_tabs[2]:

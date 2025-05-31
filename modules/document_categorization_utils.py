@@ -280,7 +280,8 @@ def extract_document_features(file_id: str) -> Dict[str, Any]:
     In a real implementation, this might involve more sophisticated analysis.
     """
     try:
-        file_info = st.session_state.client.files.get(file_id, fields=["size", "name", "created_at", "modified_at", "parent"])
+        # Corrected Box SDK usage: client.file(file_id).get() instead of client.files.get()
+        file_info = st.session_state.client.file(file_id).get(fields=["size", "name", "created_at", "modified_at", "parent"])
         return {
             "file_size_kb": round(file_info.size / 1024, 2),
             "file_extension": os.path.splitext(file_info.name)[1].lower(),
