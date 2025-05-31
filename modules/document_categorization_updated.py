@@ -213,8 +213,15 @@ def document_categorization():
         
         st.write("## Categorization Options")
         
-        # Folder selection
-        folder_id = st.text_input("Box Folder ID", value="323454589704")
+        source_option = st.radio(
+            "Select document source for categorization:",
+            ("Selected in File Browser", "Specific Folder ID"),
+            key="categorization_source_option"
+        )
+
+        folder_id_input = "323454589704" # Default value
+        if source_option == "Specific Folder ID":
+            folder_id_input = st.text_input("Box Folder ID", value=folder_id_input)
         
         # Start and cancel buttons
         col1, col2 = st.columns(2)
@@ -229,156 +236,223 @@ def document_categorization():
             st.session_state.document_categorization["results"] = []
             st.session_state.document_categorization["errors"] = []
             
-            # Get folder contents
-            try:
-                folder = st.session_state.client.folder(folder_id).get()
-                items = folder.get_items()
+            # Get folder contents / selected files
+            files_to_process = []
+            proceed_with_categorization = False
+
+            if source_option == "Selected in File Browser":
+                selected_file_ids = st.session_state.get("selected_files", [])
+                selected_folder_ids = st.session_state.get("selected_folders", [])
                 
-                # Filter for files only
-                files = [item for item in items if item.type == "file"]
-                
-                if not files:
-                    st.warning("No files found in the specified folder.")
+                if not selected_file_ids and not selected_folder_ids:
+                    st.warning("No files or folders selected in File Browser. Please select items in Step 2: Select Files (if available in the app) or choose 'Specific Folder ID'.")
                 else:
-                    # Process each file
-                    progress_text = st.empty()
-                    
-                    if consensus_mode == "Standard":
-                        progress_text.info(f"Processing {len(files)} files with {model}...")
+                    temp_file_objects = {} # Use dict to store file objects by ID for deduplication
+                    try:
+                        if selected_file_ids:
+                            st.write(f"Processing {len(selected_file_ids)} individually selected files...")
+                            for file_id in selected_file_ids:
+                                if file_id not in temp_file_objects:
+                                    file_obj = st.session_state.client.file(file_id).get()
+                                    temp_file_objects[file_id] = file_obj
                         
-                        for file in files:
-                            try:
-                                progress_text.info(f"Processing {file.name}...")
+                        if selected_folder_ids:
+                            st.write(f"Processing files from {len(selected_folder_ids)} selected folders...")
+                            for folder_id_val in selected_folder_ids:
+                                folder_obj = st.session_state.client.folder(folder_id_val).get()
+                                st.write(f"Fetching items from folder: {folder_obj.name}")
+                                items_in_folder = folder_obj.get_items()
+                                for item in items_in_folder:
+                                    if item.type == "file" and item.id not in temp_file_objects:
+                                        temp_file_objects[item.id] = item
+
+                        files_to_process = list(temp_file_objects.values())
+                        if files_to_process:
+                            st.info(f"Found {len(files_to_process)} unique files from File Browser selections.")
+                            proceed_with_categorization = True
+                        else:
+                            st.warning("No processable files found in the selected items from File Browser.")
+
+                    except Exception as e:
+                        st.error(f"Error accessing selected items: {str(e)}")
+                        logger.error(f"Error processing selections from File Browser: {str(e)}")
+
+            elif source_option == "Specific Folder ID":
+                if not folder_id_input:
+                    st.warning("Please enter a Box Folder ID.")
+                else:
+                    try:
+                        folder = st.session_state.client.folder(folder_id_input).get()
+                        items = folder.get_items()
+                        files_to_process = [item for item in items if item.type == "file"]
+                        if files_to_process:
+                             st.info(f"Found {len(files_to_process)} files in folder '{folder.name}'.")
+                             proceed_with_categorization = True
+                        else:
+                            st.warning(f"No files found in the folder ID: {folder_id_input}")
+                    except Exception as e:
+                        st.error(f"Error accessing folder ID {folder_id_input}: {str(e)}")
+                        logger.error(f"Error accessing folder {folder_id_input}: {str(e)}")
+
+            if proceed_with_categorization and files_to_process:
+                # Process each file
+                progress_text = st.empty()
+
+                if consensus_mode == "Standard":
+                    progress_text.info(f"Processing {len(files_to_process)} files with {model}...")
+
+                    for file_obj in files_to_process: # Renamed 'file' to 'file_obj' to avoid conflict
+                        try:
+                            progress_text.info(f"Processing {file_obj.name}...")
                                 
                                 if use_two_stage:
                                     result = categorize_document_detailed(
-                                        file.id, 
+                                        file_obj.id,
                                         model, 
                                         st.session_state.document_types,
                                         confidence_threshold
                                     )
                                 else:
                                     result = categorize_document(
-                                        file.id, 
+                                        file_obj.id,
                                         model, 
                                         st.session_state.document_types
                                     )
                                 
                                 # Add file info to result
-                                result["file_id"] = file.id
-                                result["file_name"] = file.name
+                                result["file_id"] = file_obj.id
+                                result["file_name"] = file_obj.name
                                 
                                 # Add to results
                                 st.session_state.document_categorization["results"].append(result)
                                 
                             except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
+                                logger.error(f"Error categorizing document {file_obj.name}: {str(e)}")
                                 st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
+                                    "file_id": file_obj.id,
+                                    "file_name": file_obj.name,
                                     "error": str(e)
                                 })
                     
                     elif consensus_mode == "Parallel Consensus":
-                        if not models:
+                        if not models: # 'models' is from the multiselect
                             st.error("Please select at least one model for parallel consensus.")
-                            return
-                        
-                        progress_text.info(f"Processing {len(files)} files with {len(models)} models in parallel...")
-                        
-                        for file in files:
-                            try:
-                                progress_text.info(f"Processing {file.name} with parallel consensus...")
+                            # return # This would exit the button press, maybe just skip categorization?
+                        else:
+                            progress_text.info(f"Processing {len(files_to_process)} files with {len(models)} models in parallel...")
+
+                            for file_obj in files_to_process: # Renamed 'file' to 'file_obj'
+                                try:
+                                    progress_text.info(f"Processing {file_obj.name} with parallel consensus...")
                                 
-                                # Get results from all selected models
-                                model_results = []
-                                for model_name in models:
-                                    try:
-                                        if use_two_stage:
-                                            model_result = categorize_document_detailed(
-                                                file.id, 
-                                                model_name, 
-                                                st.session_state.document_types,
-                                                confidence_threshold
-                                            )
-                                        else:
-                                            model_result = categorize_document(
-                                                file.id, 
-                                                model_name, 
-                                                st.session_state.document_types
-                                            )
-                                        
-                                        model_result["model_name"] = model_name
-                                        model_results.append(model_result)
-                                    except Exception as e:
-                                        logger.error(f"Error with model {model_name} for {file.name}: {str(e)}")
-                                
-                                if model_results:
-                                    # Combine results from all models
-                                    combined_result = combine_categorization_results(model_results)
+                                    # Get results from all selected models
+                                    model_results = []
+                                    for model_name_selected in models: # 'models' is from multiselect
+                                        try:
+                                            if use_two_stage:
+                                                model_result = categorize_document_detailed(
+                                                    file_obj.id,
+                                                    model_name_selected,
+                                                    st.session_state.document_types,
+                                                    confidence_threshold
+                                                )
+                                            else:
+                                                model_result = categorize_document(
+                                                    file_obj.id,
+                                                    model_name_selected,
+                                                    st.session_state.document_types
+                                                )
+
+                                            model_result["model_name"] = model_name_selected
+                                            model_results.append(model_result)
+                                        except Exception as e:
+                                            logger.error(f"Error with model {model_name_selected} for {file_obj.name}: {str(e)}")
                                     
-                                    # Add file info to result
-                                    combined_result["file_id"] = file.id
-                                    combined_result["file_name"] = file.name
-                                    combined_result["model_results"] = model_results
+                                    if model_results:
+                                        # Combine results from all models
+                                        current_valid_categories = [dtype["name"] for dtype in st.session_state.document_types]
+                                        combined_result = combine_categorization_results(
+                                            model_results,
+                                            current_valid_categories,
+                                            models # This is the list of selected model names
+                                        )
+
+                                        # Add file info to result
+                                        combined_result["file_id"] = file_obj.id
+                                        combined_result["file_name"] = file_obj.name
+                                        combined_result["model_results"] = model_results # Keep individual model results
+
+                                        # Add to results
+                                        st.session_state.document_categorization["results"].append(combined_result)
+                                    else:
+                                        # This means all models failed for this specific file
+                                        st.session_state.document_categorization["errors"].append({
+                                            "file_id": file_obj.id,
+                                            "file_name": file_obj.name,
+                                            "error": "All selected parallel models failed to categorize this document."
+                                        })
                                     
-                                    # Add to results
-                                    st.session_state.document_categorization["results"].append(combined_result)
-                                else:
-                                    raise Exception("All models failed to categorize the document")
-                                
-                            except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
-                                st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
-                                    "error": str(e)
-                                })
+                                except Exception as e:
+                                    logger.error(f"Error categorizing document {file_obj.name} with parallel consensus: {str(e)}")
+                                    st.session_state.document_categorization["errors"].append({
+                                        "file_id": file_obj.id,
+                                        "file_name": file_obj.name,
+                                        "error": str(e)
+                                    })
                     
                     else:  # Sequential Consensus
-                        progress_text.info(f"Processing {len(files)} files with sequential consensus...")
+                        progress_text.info(f"Processing {len(files_to_process)} files with sequential consensus...")
                         
-                        for file in files:
+                        for file_obj in files_to_process: # Renamed 'file' to 'file_obj'
                             try:
-                                progress_text.info(f"Processing {file.name} with sequential consensus...")
+                                progress_text.info(f"Processing {file_obj.name} with sequential consensus...")
                                 
                                 # Use sequential consensus implementation
                                 result = categorize_document_with_sequential_consensus(
-                                    file.id,
-                                    model1,
-                                    model2,
-                                    model3,
+                                    file_obj.id,
+                                    model1, # from sequential selectbox
+                                    model2, # from sequential selectbox
+                                    model3, # from sequential selectbox
                                     st.session_state.document_types,
                                     disagreement_threshold
                                 )
                                 
                                 # Add file info to result
-                                result["file_id"] = file.id
-                                result["file_name"] = file.name
+                                result["file_id"] = file_obj.id
+                                result["file_name"] = file_obj.name
                                 
                                 # Add to results
                                 st.session_state.document_categorization["results"].append(result)
                                 
                             except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
+                                logger.error(f"Error categorizing document {file_obj.name} with sequential consensus: {str(e)}")
                                 st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
+                                    "file_id": file_obj.id,
+                                    "file_name": file_obj.name,
                                     "error": str(e)
                                 })
                     
-                    # Update status
-                    progress_text.empty()
-                    st.session_state.document_categorization["is_categorized"] = True
-                    num_processed = len(st.session_state.document_categorization["results"])
-                    num_errors = len(st.session_state.document_categorization["errors"])
-                    if num_errors == 0:
-                        st.success(f"Categorization complete! Processed {num_processed} files.")
-                    else:
-                        st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.")
+                # Update status after processing all files
+                if progress_text: progress_text.empty() # Clear "Processing..." message
+                st.session_state.document_categorization["is_categorized"] = True
+                num_processed = len(st.session_state.document_categorization["results"])
+                num_errors = len(st.session_state.document_categorization["errors"])
+
+                if num_processed == 0 and num_errors == 0 and not proceed_with_categorization:
+                    # This case means a warning was already shown (e.g. no folder ID, no selections)
+                    pass
+                elif num_errors == 0 and num_processed > 0:
+                    st.success(f"Categorization complete! Processed {num_processed} files.")
+                elif num_processed > 0 and num_errors > 0:
+                    st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.")
+                elif num_processed == 0 and num_errors > 0 :
+                    st.error(f"Categorization failed for all {num_errors} attempted items.")
+                # If proceed_with_categorization was true but files_to_process was empty (e.g. folder had no files)
+                # A warning about "No files found..." would have already been shown.
             
-            except Exception as e:
-                st.error(f"Error accessing folder: {str(e)}")
+            # Removed the outer try-except that was catching errors for folder access,
+            # as specific error handling is now done per source_option.
+            # Errors during API calls within the loop are caught per file.
         
         # --- Results Display ---
         if st.session_state.document_categorization.get("is_categorized", False):

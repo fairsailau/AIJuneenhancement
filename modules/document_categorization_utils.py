@@ -5,10 +5,17 @@ import json
 import requests
 import re
 import os
-import datetime
+import datetime as dt_module # Alias to avoid conflict with datetime class
+from datetime import datetime # Specific import for datetime class
 import pandas as pd
 import altair as alt
 from typing import Dict, Any, List, Optional, Tuple
+
+try:
+    from dateutil import parser as dateutil_parser
+    dateutil_parser_available = True
+except ImportError:
+    dateutil_parser_available = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -280,17 +287,85 @@ def extract_document_features(file_id: str) -> Dict[str, Any]:
     In a real implementation, this might involve more sophisticated analysis.
     """
     try:
-        # Corrected Box SDK usage: client.file(file_id).get() instead of client.files.get()
         file_info = st.session_state.client.file(file_id).get(fields=["size", "name", "created_at", "modified_at", "parent"])
+
+        created_date_str = "N/A"
+        raw_created_at = file_info.created_at
+        if isinstance(raw_created_at, str):
+            try:
+                dt_created = None
+                if dateutil_parser_available:
+                    try:
+                        dt_created = dateutil_parser.isoparse(raw_created_at)
+                    except Exception as de: # Broad exception for dateutil if it fails
+                        logger.warning(f"dateutil.parser failed for created_at '{raw_created_at}': {de}. Falling back.")
+                        # Fall through to fromisoformat logic by not setting dt_created
+
+                if dt_created is None: # Fallback or if dateutil was not available/failed
+                    processed_created_at_str = raw_created_at
+                    if processed_created_at_str.endswith('Z'):
+                        processed_created_at_str = processed_created_at_str[:-1] + '+00:00'
+                    dt_created = datetime.fromisoformat(processed_created_at_str)
+
+                created_date_str = dt_created.strftime("%Y-%m-%d")
+            except ValueError as ve:
+                logger.warning(f"Could not parse created_at string '{raw_created_at}' for file {file_id}: {ve}")
+                created_date_str = raw_created_at # Fallback to original string
+            except Exception as ex:
+                logger.warning(f"Generic error processing created_at string '{raw_created_at}' for file {file_id}: {ex}")
+                created_date_str = raw_created_at # Fallback to original string
+        elif isinstance(raw_created_at, dt_module.datetime) or isinstance(raw_created_at, datetime): # Check for both aliased and direct datetime
+            try:
+                created_date_str = raw_created_at.strftime("%Y-%m-%d")
+            except Exception as ex:
+                logger.warning(f"Error formatting datetime object created_at for file {file_id}: {ex}")
+                # created_date_str remains "N/A"
+
+        modified_date_str = "N/A"
+        raw_modified_at = file_info.modified_at
+        if isinstance(raw_modified_at, str):
+            try:
+                dt_modified = None
+                if dateutil_parser_available:
+                    try:
+                        dt_modified = dateutil_parser.isoparse(raw_modified_at)
+                    except Exception as de:
+                        logger.warning(f"dateutil.parser failed for modified_at '{raw_modified_at}': {de}. Falling back.")
+
+                if dt_modified is None: # Fallback or if dateutil was not available/failed
+                    processed_modified_at_str = raw_modified_at
+                    if processed_modified_at_str.endswith('Z'):
+                        processed_modified_at_str = processed_modified_at_str[:-1] + '+00:00'
+                    dt_modified = datetime.fromisoformat(processed_modified_at_str)
+
+                modified_date_str = dt_modified.strftime("%Y-%m-%d")
+            except ValueError as ve:
+                logger.warning(f"Could not parse modified_at string '{raw_modified_at}' for file {file_id}: {ve}")
+                modified_date_str = raw_modified_at # Fallback to original string
+            except Exception as ex:
+                logger.warning(f"Generic error processing modified_at string '{raw_modified_at}' for file {file_id}: {ex}")
+                modified_date_str = raw_modified_at # Fallback to original string
+        elif isinstance(raw_modified_at, dt_module.datetime) or isinstance(raw_modified_at, datetime): # Check for both aliased and direct datetime
+            try:
+                modified_date_str = raw_modified_at.strftime("%Y-%m-%d")
+            except Exception as ex:
+                logger.warning(f"Error formatting datetime object modified_at for file {file_id}: {ex}")
+
         return {
             "file_size_kb": round(file_info.size / 1024, 2),
             "file_extension": os.path.splitext(file_info.name)[1].lower(),
-            "created_date": file_info.created_at.strftime("%Y-%m-%d"),
-            "modified_date": file_info.modified_at.strftime("%Y-%m-%d")
+            "created_date": created_date_str,
+            "modified_date": modified_date_str
         }
     except Exception as e:
         logger.error(f"Error extracting features for file {file_id}: {str(e)}")
-        return {}
+        # Return a dict with default values for all expected keys in case of error
+        return {
+            "file_size_kb": 0,
+            "file_extension": "",
+            "created_date": "N/A",
+            "modified_date": "N/A"
+        }
 
 def calculate_multi_factor_confidence(
     ai_reported_confidence: float,
