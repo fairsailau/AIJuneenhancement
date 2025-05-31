@@ -27,7 +27,8 @@ from modules.metadata_config import metadata_config
 from modules.processing import process_files
 from modules.results_viewer import view_results
 from modules.direct_metadata_application_v3_fixed import apply_metadata_direct as apply_metadata
-from modules.document_categorization import document_categorization
+# Import the updated document categorization module
+from modules.document_categorization_updated import document_categorization
 from modules.metadata_template_retrieval import get_metadata_templates, initialize_template_state
 from modules.rule_builder import show_rule_overview
 # Import the modified horizontal workflow component (now visual only)
@@ -368,5 +369,3 @@ else:
         # Fallback if page is unknown
         st.error(f"Unknown page: {st.session_state.current_page}")
         st.button("Go to Login", on_click=navigate_to, args=("Home",))
-
-
