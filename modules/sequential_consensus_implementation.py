@@ -69,9 +69,9 @@ def categorize_document_with_sequential_consensus(
         model1_multi_factor_confidence.get("overall", model1_result["confidence"])
     )
     
-    # Step 2: Review by Model 2
-    logger.info(f"Step 2: Review by {model2}")
-    model2_result = review_categorization(file_id, model2, model1_result, document_types_with_desc)
+    # Step 2: First get Model 2's independent assessment, then review
+    logger.info(f"Step 2: Independent assessment and review by {model2}")
+    model2_result = two_stage_review_categorization(file_id, model2, model1_result, document_types_with_desc)
     model2_result["model_name"] = model2
     
     # Calculate agreement level and confidence
@@ -156,14 +156,18 @@ def categorize_document_with_sequential_consensus(
     
     return result
 
-def review_categorization(
+def two_stage_review_categorization(
     file_id: str, 
     model: str, 
     initial_result: Dict[str, Any], 
     document_types_with_desc: List[Dict[str, str]]
 ) -> Dict[str, Any]:
     """
-    Have a second model review the initial categorization result.
+    Two-stage review process:
+    1. First get Model 2's independent assessment
+    2. Then have Model 2 review Model 1's results
+    
+    This approach reduces bias by first getting an independent opinion.
     
     Args:
         file_id: Box file ID
@@ -190,49 +194,96 @@ def review_categorization(
     valid_categories = [dtype["name"] for dtype in document_types_with_desc]
     category_options_text = "\n".join([f"- {dtype['name']}: {dtype['description']}" for dtype in document_types_with_desc])
     
-    initial_category = initial_result["document_type"]
-    initial_confidence = initial_result["confidence"]
-    initial_reasoning = initial_result.get("reasoning", "No reasoning provided")
-    
-    prompt = (
-        f"You are an expert document reviewer. Another AI model has categorized a document as follows:\n\n"
-        f"Category: {initial_category}\n"
-        f"Confidence: {initial_confidence:.2f}\n"
-        f"Reasoning: {initial_reasoning}\n\n"
-        f"Please review this categorization by examining the document yourself. You should:\n"
-        f"1. Determine if you agree with the category assignment\n"
-        f"2. Provide your own confidence score\n"
-        f"3. Assess the quality of the original reasoning\n"
-        f"4. Provide your own detailed reasoning\n\n"
+    # STAGE 1: Independent assessment
+    independent_prompt = (
+        f"You are an expert document reviewer. Please categorize this document into one of the following categories:\n\n"
         f"Available categories:\n{category_options_text}\n\n"
         f"Respond in the following format:\n"
         f"Category: [your selected category name]\n"
         f"Confidence: [your confidence score between 0.0 and 1.0]\n"
-        f"Agreement: [Agree/Partially Agree/Disagree] with the original categorization\n"
-        f"Assessment: [Your assessment of the original categorization and reasoning]\n"
         f"Reasoning: [Your detailed reasoning for the categorization]"
     )
 
-    logger.info(f"Box AI Review Request for file {file_id} (model: {model}):\n{prompt}")
+    logger.info(f"Box AI Independent Assessment Request for file {file_id} (model: {model}):\n{independent_prompt}")
 
     api_url = "https://api.box.com/2.0/ai/ask"
-    request_body = {
+    independent_request_body = {
         "mode": "single_item_qa",
-        "prompt": prompt,
+        "prompt": independent_prompt,
         "items": [{"type": "file", "id": file_id}],
         "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
     }
 
     try:
-        logger.info(f"Making Box AI review call for file {file_id} with model {model}")
-        response = requests.post(api_url, headers=headers, json=request_body, timeout=180)
-        response.raise_for_status()
-        response_data = response.json()
-        logger.info(f"Box AI review response for {file_id}: {json.dumps(response_data)}")
+        logger.info(f"Making Box AI independent assessment call for file {file_id} with model {model}")
+        independent_response = requests.post(api_url, headers=headers, json=independent_request_body, timeout=180)
+        independent_response.raise_for_status()
+        independent_data = independent_response.json()
+        logger.info(f"Box AI independent assessment response for {file_id}: {json.dumps(independent_data)}")
 
-        if "answer" in response_data and response_data["answer"]:
-            original_response = response_data["answer"]
+        # Parse independent assessment
+        independent_result = {}
+        if "answer" in independent_data and independent_data["answer"]:
+            independent_answer = independent_data["answer"]
+            independent_result = parse_independent_response(independent_answer, valid_categories)
+        else:
+            logger.warning(f"No answer field or empty answer in Box AI independent assessment for file {file_id}")
+            independent_result = {
+                "document_type": "Unknown",
+                "confidence": 0.5,
+                "reasoning": "Independent assessment failed to provide a response."
+            }
+        
+        # STAGE 2: Review with knowledge of Model 1's results
+        initial_category = initial_result["document_type"]
+        initial_confidence = initial_result["confidence"]
+        initial_reasoning = initial_result.get("reasoning", "No reasoning provided")
+        
+        independent_category = independent_result["document_type"]
+        independent_confidence = independent_result["confidence"]
+        independent_reasoning = independent_result["reasoning"]
+        
+        review_prompt = (
+            f"You are an expert document reviewer. You have been asked to review a document categorization.\n\n"
+            f"First, you independently categorized this document as:\n"
+            f"Category: {independent_category}\n"
+            f"Confidence: {independent_confidence:.2f}\n"
+            f"Your reasoning: {independent_reasoning}\n\n"
+            f"Another AI model categorized the same document as:\n"
+            f"Category: {initial_category}\n"
+            f"Confidence: {initial_confidence:.2f}\n"
+            f"Their reasoning: {initial_reasoning}\n\n"
+            f"Please compare these two assessments and provide your final categorization.\n\n"
+            f"Available categories:\n{category_options_text}\n\n"
+            f"Respond in the following format:\n"
+            f"Category: [your final category selection]\n"
+            f"Confidence: [your final confidence score between 0.0 and 1.0]\n"
+            f"Agreement: [Agree/Partially Agree/Disagree] with the other model's categorization\n"
+            f"Assessment: [Your assessment of the other model's categorization and reasoning]\n"
+            f"Reasoning: [Your detailed reasoning for your final categorization]"
+        )
+
+        logger.info(f"Box AI Review Request for file {file_id} (model: {model}):\n{review_prompt}")
+
+        review_request_body = {
+            "mode": "single_item_qa",
+            "prompt": review_prompt,
+            "items": [{"type": "file", "id": file_id}],
+            "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
+        }
+
+        logger.info(f"Making Box AI review call for file {file_id} with model {model}")
+        review_response = requests.post(api_url, headers=headers, json=review_request_body, timeout=180)
+        review_response.raise_for_status()
+        review_data = review_response.json()
+        logger.info(f"Box AI review response for {file_id}: {json.dumps(review_data)}")
+
+        if "answer" in review_data and review_data["answer"]:
+            original_response = review_data["answer"]
             parsed_result = parse_review_response(original_response, valid_categories, initial_result)
+            
+            # Add independent assessment to result
+            parsed_result["independent_assessment"] = independent_result
             
             # Calculate confidence adjustment factors
             confidence_adjustment_factors = {
@@ -260,12 +311,13 @@ def review_categorization(
             
             return parsed_result
         else:
-            logger.warning(f"No answer field or empty answer in Box AI review response for file {file_id}. Response: {response_data}")
+            logger.warning(f"No answer field or empty answer in Box AI review response for file {file_id}. Response: {review_data}")
             return {
-                "document_type": initial_result["document_type"],
-                "confidence": initial_result["confidence"] * 0.9,  # Slightly reduce confidence due to review failure
-                "reasoning": "Review model did not provide a valid response. Using initial categorization.",
-                "original_response": str(response_data),
+                "document_type": independent_result["document_type"],  # Use independent assessment as fallback
+                "confidence": independent_result["confidence"] * 0.9,  # Slightly reduce confidence due to review failure
+                "reasoning": "Review model did not provide a valid response. Using independent assessment.",
+                "original_response": str(review_data),
+                "independent_assessment": independent_result,
                 "review_assessment": {
                     "agreement_level": "Unknown",
                     "assessment_reasoning": "Review failed"
@@ -284,164 +336,77 @@ def review_categorization(
             }
         }
 
-def arbitrate_categorization(
-    file_id: str, 
-    model: str, 
-    model1_result: Dict[str, Any], 
-    model2_result: Dict[str, Any],
-    document_types_with_desc: List[Dict[str, str]]
-) -> Dict[str, Any]:
+def parse_independent_response(response_text: str, valid_categories: List[str]) -> Dict[str, Any]:
     """
-    Have a third model arbitrate between conflicting categorization results.
+    Parse the response from the independent assessment.
     
     Args:
-        file_id: Box file ID
-        model: AI model for arbitration
-        model1_result: Result from the initial categorization
-        model2_result: Result from the review
-        document_types_with_desc: List of document types with descriptions
+        response_text: Response text from the AI model
+        valid_categories: List of valid category names
         
     Returns:
-        Dictionary with arbitration results
+        Dictionary with parsed assessment results
     """
-    access_token = None
-    if hasattr(st.session_state.client, "_oauth"):
-        access_token = st.session_state.client._oauth.access_token
-    elif hasattr(st.session_state.client, "auth") and hasattr(st.session_state.client.auth, "access_token"):
-        access_token = st.session_state.client.auth.access_token
-    if not access_token:
-        raise ValueError("Could not retrieve access token from client")
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-
-    valid_categories = [dtype["name"] for dtype in document_types_with_desc]
-    category_options_text = "\n".join([f"- {dtype['name']}: {dtype['description']}" for dtype in document_types_with_desc])
+    logger.info(f"Parsing independent assessment response: {response_text[:150]}...")
     
-    model1_category = model1_result["document_type"]
-    model1_confidence = model1_result["confidence"]
-    model1_reasoning = model1_result.get("reasoning", "No reasoning provided")
+    # Default values
+    category = "Unknown"
+    confidence = 0.5
+    reasoning = ""
     
-    model2_category = model2_result["document_type"]
-    model2_confidence = model2_result["confidence"]
-    model2_reasoning = model2_result.get("reasoning", "No reasoning provided")
+    lines = response_text.strip().split("\n")
     
-    prompt = (
-        f"You are an expert document arbitrator. Two AI models have categorized the same document with different results:\n\n"
-        f"MODEL 1 CATEGORIZATION:\n"
-        f"Category: {model1_category}\n"
-        f"Confidence: {model1_confidence:.2f}\n"
-        f"Reasoning: {model1_reasoning}\n\n"
-        f"MODEL 2 CATEGORIZATION:\n"
-        f"Category: {model2_category}\n"
-        f"Confidence: {model2_confidence:.2f}\n"
-        f"Reasoning: {model2_reasoning}\n\n"
-        f"Please examine the document yourself and arbitrate between these conflicting categorizations. You should:\n"
-        f"1. Determine which model's categorization is more accurate (or provide your own if both are incorrect)\n"
-        f"2. Provide your own confidence score\n"
-        f"3. Assess the quality of each model's reasoning\n"
-        f"4. Provide your own detailed reasoning\n\n"
-        f"Available categories:\n{category_options_text}\n\n"
-        f"Respond in the following format:\n"
-        f"Category: [your selected category name]\n"
-        f"Confidence: [your confidence score between 0.0 and 1.0]\n"
-        f"Model 1 Assessment: [Your assessment of Model 1's categorization]\n"
-        f"Model 2 Assessment: [Your assessment of Model 2's categorization]\n"
-        f"Arbitration: [Your explanation of which model is more accurate and why]\n"
-        f"Reasoning: [Your detailed reasoning for the final categorization]"
-    )
-
-    logger.info(f"Box AI Arbitration Request for file {file_id} (model: {model}):\n{prompt}")
-
-    api_url = "https://api.box.com/2.0/ai/ask"
-    request_body = {
-        "mode": "single_item_qa",
-        "prompt": prompt,
-        "items": [{"type": "file", "id": file_id}],
-        "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
-    }
-
-    try:
-        logger.info(f"Making Box AI arbitration call for file {file_id} with model {model}")
-        response = requests.post(api_url, headers=headers, json=request_body, timeout=180)
-        response.raise_for_status()
-        response_data = response.json()
-        logger.info(f"Box AI arbitration response for {file_id}: {json.dumps(response_data)}")
-
-        if "answer" in response_data and response_data["answer"]:
-            original_response = response_data["answer"]
-            parsed_result = parse_arbitration_response(original_response, valid_categories, model1_result, model2_result)
-            
-            # Calculate confidence factors based on arbitration
-            confidence_factors = {
-                "model_agreement": 0.0,
-                "reasoning_quality": 0.0,
-                "arbitration_confidence": 0.0
-            }
-            
-            # Check if arbitration agrees with either model
-            if parsed_result["document_type"] == model1_result["document_type"]:
-                confidence_factors["model_agreement"] = 0.05
-            elif parsed_result["document_type"] == model2_result["document_type"]:
-                confidence_factors["model_agreement"] = 0.05
-            
-            # Assess reasoning quality based on arbitration assessment
-            arbitration_reasoning = parsed_result["arbitration_assessment"]["arbitration_reasoning"].lower()
-            if "clear" in arbitration_reasoning or "strong" in arbitration_reasoning or "definitive" in arbitration_reasoning:
-                confidence_factors["reasoning_quality"] = 0.05
-            elif "uncertain" in arbitration_reasoning or "ambiguous" in arbitration_reasoning:
-                confidence_factors["reasoning_quality"] = -0.05
-            
-            # Arbitration confidence factor
-            confidence_factors["arbitration_confidence"] = parsed_result["confidence"] * 0.1
-            
-            parsed_result["confidence_factors"] = confidence_factors
-            
-            return parsed_result
-        else:
-            logger.warning(f"No answer field or empty answer in Box AI arbitration response for file {file_id}. Response: {response_data}")
-            # Fall back to the model with higher confidence
-            if model1_result["confidence"] >= model2_result["confidence"]:
-                fallback_result = model1_result
-                fallback_message = "Arbitration failed. Using Model 1's result (higher confidence)."
+    # Parse each line based on expected format
+    for i, line in enumerate(lines):
+        if line.lower().startswith("category:"):
+            extracted_category = line.split(":", 1)[1].strip()
+            # Find exact or partial match
+            for valid_cat in valid_categories:
+                if valid_cat.lower() == extracted_category.lower():
+                    category = valid_cat
+                    break
             else:
-                fallback_result = model2_result
-                fallback_message = "Arbitration failed. Using Model 2's result (higher confidence)."
-                
-            return {
-                "document_type": fallback_result["document_type"],
-                "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
-                "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
-                "original_response": str(response_data),
-                "arbitration_assessment": {
-                    "model1_assessment": "Arbitration failed",
-                    "model2_assessment": "Arbitration failed",
-                    "arbitration_reasoning": fallback_message
-                }
-            }
-    except Exception as e:
-        logger.error(f"Error during Box AI arbitration call for file {file_id}: {str(e)}")
-        # Fall back to the model with higher confidence
-        if model1_result["confidence"] >= model2_result["confidence"]:
-            fallback_result = model1_result
-            fallback_message = f"Arbitration error: {str(e)}. Using Model 1's result (higher confidence)."
-        else:
-            fallback_result = model2_result
-            fallback_message = f"Arbitration error: {str(e)}. Using Model 2's result (higher confidence)."
-            
-        return {
-            "document_type": fallback_result["document_type"],
-            "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
-            "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
-            "original_response": str(e),
-            "arbitration_assessment": {
-                "model1_assessment": "Arbitration error",
-                "model2_assessment": "Arbitration error",
-                "arbitration_reasoning": fallback_message
-            }
-        }
+                for valid_cat in valid_categories:
+                    if valid_cat.lower() in extracted_category.lower() or extracted_category.lower() in valid_cat.lower():
+                        category = valid_cat
+                        break
+        
+        elif line.lower().startswith("confidence:"):
+            confidence_match = re.search(r"([0-9]*\.?[0-9]+)", line)
+            if confidence_match:
+                try:
+                    confidence = float(confidence_match.group(1))
+                    confidence = max(0.0, min(1.0, confidence))
+                except ValueError:
+                    logger.warning(f"Could not parse confidence value: {line}")
+        
+        elif line.lower().startswith("reasoning:"):
+            reasoning = line.split(":", 1)[1].strip()
+            # Include all remaining lines as part of reasoning
+            if i+1 < len(lines):
+                reasoning += "\n" + "\n".join(lines[i+1:])
+            break
+    
+    # If no reasoning found, use everything after the confidence as reasoning
+    if not reasoning:
+        for i, line in enumerate(lines):
+            if line.lower().startswith("confidence:"):
+                if i+1 < len(lines):
+                    reasoning = "\n".join(lines[i+1:])
+                break
+    
+    # If still no reasoning, use the original response
+    if not reasoning:
+        reasoning = response_text
+    
+    logger.info(f"Parsed independent assessment - Category: {category}, Confidence: {confidence:.2f}")
+    
+    return {
+        "document_type": category,
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "original_response": response_text
+    }
 
 def parse_review_response(response_text: str, valid_categories: List[str], initial_result: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -551,6 +516,180 @@ def parse_review_response(response_text: str, valid_categories: List[str], initi
             "assessment_reasoning": assessment_reasoning
         }
     }
+
+def arbitrate_categorization(
+    file_id: str, 
+    model: str, 
+    model1_result: Dict[str, Any], 
+    model2_result: Dict[str, Any],
+    document_types_with_desc: List[Dict[str, str]]
+) -> Dict[str, Any]:
+    """
+    Have a third model arbitrate between conflicting categorization results.
+    
+    Args:
+        file_id: Box file ID
+        model: AI model for arbitration
+        model1_result: Result from the initial categorization
+        model2_result: Result from the review
+        document_types_with_desc: List of document types with descriptions
+        
+    Returns:
+        Dictionary with arbitration results
+    """
+    access_token = None
+    if hasattr(st.session_state.client, "_oauth"):
+        access_token = st.session_state.client._oauth.access_token
+    elif hasattr(st.session_state.client, "auth") and hasattr(st.session_state.client.auth, "access_token"):
+        access_token = st.session_state.client.auth.access_token
+    if not access_token:
+        raise ValueError("Could not retrieve access token from client")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    valid_categories = [dtype["name"] for dtype in document_types_with_desc]
+    category_options_text = "\n".join([f"- {dtype['name']}: {dtype['description']}" for dtype in document_types_with_desc])
+    
+    model1_category = model1_result["document_type"]
+    model1_confidence = model1_result["confidence"]
+    model1_reasoning = model1_result.get("reasoning", "No reasoning provided")
+    
+    model2_category = model2_result["document_type"]
+    model2_confidence = model2_result["confidence"]
+    model2_reasoning = model2_result.get("reasoning", "No reasoning provided")
+    
+    # Include independent assessment if available
+    independent_assessment_text = ""
+    if "independent_assessment" in model2_result:
+        independent_category = model2_result["independent_assessment"]["document_type"]
+        independent_confidence = model2_result["independent_assessment"]["confidence"]
+        independent_reasoning = model2_result["independent_assessment"]["reasoning"]
+        
+        independent_assessment_text = (
+            f"MODEL 2 INDEPENDENT ASSESSMENT (before seeing Model 1's results):\n"
+            f"Category: {independent_category}\n"
+            f"Confidence: {independent_confidence:.2f}\n"
+            f"Reasoning: {independent_reasoning}\n\n"
+        )
+    
+    prompt = (
+        f"You are an expert document arbitrator. Two AI models have categorized the same document with different results:\n\n"
+        f"MODEL 1 CATEGORIZATION:\n"
+        f"Category: {model1_category}\n"
+        f"Confidence: {model1_confidence:.2f}\n"
+        f"Reasoning: {model1_reasoning}\n\n"
+        f"MODEL 2 CATEGORIZATION:\n"
+        f"{independent_assessment_text}"
+        f"Category: {model2_category}\n"
+        f"Confidence: {model2_confidence:.2f}\n"
+        f"Reasoning: {model2_reasoning}\n\n"
+        f"Please examine the document yourself and arbitrate between these conflicting categorizations. You should:\n"
+        f"1. Determine which model's categorization is more accurate (or provide your own if both are incorrect)\n"
+        f"2. Provide your own confidence score\n"
+        f"3. Assess the quality of each model's reasoning\n"
+        f"4. Provide your own detailed reasoning\n\n"
+        f"Available categories:\n{category_options_text}\n\n"
+        f"Respond in the following format:\n"
+        f"Category: [your selected category name]\n"
+        f"Confidence: [your confidence score between 0.0 and 1.0]\n"
+        f"Model 1 Assessment: [Your assessment of Model 1's categorization]\n"
+        f"Model 2 Assessment: [Your assessment of Model 2's categorization]\n"
+        f"Arbitration: [Your explanation of which model is more accurate and why]\n"
+        f"Reasoning: [Your detailed reasoning for the final categorization]"
+    )
+
+    logger.info(f"Box AI Arbitration Request for file {file_id} (model: {model}):\n{prompt}")
+
+    api_url = "https://api.box.com/2.0/ai/ask"
+    request_body = {
+        "mode": "single_item_qa",
+        "prompt": prompt,
+        "items": [{"type": "file", "id": file_id}],
+        "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
+    }
+
+    try:
+        logger.info(f"Making Box AI arbitration call for file {file_id} with model {model}")
+        response = requests.post(api_url, headers=headers, json=request_body, timeout=180)
+        response.raise_for_status()
+        response_data = response.json()
+        logger.info(f"Box AI arbitration response for {file_id}: {json.dumps(response_data)}")
+
+        if "answer" in response_data and response_data["answer"]:
+            original_response = response_data["answer"]
+            parsed_result = parse_arbitration_response(original_response, valid_categories, model1_result, model2_result)
+            
+            # Calculate confidence factors based on arbitration
+            confidence_factors = {
+                "model_agreement": 0.0,
+                "reasoning_quality": 0.0,
+                "arbitration_confidence": 0.0
+            }
+            
+            # Check if arbitration agrees with either model
+            if parsed_result["document_type"] == model1_result["document_type"]:
+                confidence_factors["model_agreement"] = 0.05
+            elif parsed_result["document_type"] == model2_result["document_type"]:
+                confidence_factors["model_agreement"] = 0.05
+            
+            # Assess reasoning quality based on arbitration assessment
+            arbitration_reasoning = parsed_result["arbitration_assessment"]["arbitration_reasoning"].lower()
+            if "clear" in arbitration_reasoning or "strong" in arbitration_reasoning or "definitive" in arbitration_reasoning:
+                confidence_factors["reasoning_quality"] = 0.05
+            elif "uncertain" in arbitration_reasoning or "ambiguous" in arbitration_reasoning:
+                confidence_factors["reasoning_quality"] = -0.05
+            
+            # Arbitration confidence factor
+            confidence_factors["arbitration_confidence"] = parsed_result["confidence"] * 0.1
+            
+            parsed_result["confidence_factors"] = confidence_factors
+            
+            return parsed_result
+        else:
+            logger.warning(f"No answer field or empty answer in Box AI arbitration response for file {file_id}. Response: {response_data}")
+            # Fall back to the model with higher confidence
+            if model1_result["confidence"] >= model2_result["confidence"]:
+                fallback_result = model1_result
+                fallback_message = "Arbitration failed. Using Model 1's result (higher confidence)."
+            else:
+                fallback_result = model2_result
+                fallback_message = "Arbitration failed. Using Model 2's result (higher confidence)."
+                
+            return {
+                "document_type": fallback_result["document_type"],
+                "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
+                "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
+                "original_response": str(response_data),
+                "arbitration_assessment": {
+                    "model1_assessment": "Arbitration failed",
+                    "model2_assessment": "Arbitration failed",
+                    "arbitration_reasoning": fallback_message
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error during Box AI arbitration call for file {file_id}: {str(e)}")
+        # Fall back to the model with higher confidence
+        if model1_result["confidence"] >= model2_result["confidence"]:
+            fallback_result = model1_result
+            fallback_message = f"Arbitration error: {str(e)}. Using Model 1's result (higher confidence)."
+        else:
+            fallback_result = model2_result
+            fallback_message = f"Arbitration error: {str(e)}. Using Model 2's result (higher confidence)."
+            
+        return {
+            "document_type": fallback_result["document_type"],
+            "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
+            "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
+            "original_response": str(e),
+            "arbitration_assessment": {
+                "model1_assessment": "Arbitration error",
+                "model2_assessment": "Arbitration error",
+                "arbitration_reasoning": fallback_message
+            }
+        }
 
 def parse_arbitration_response(
     response_text: str, 
