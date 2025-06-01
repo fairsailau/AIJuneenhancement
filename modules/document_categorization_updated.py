@@ -62,24 +62,24 @@ def document_categorization():
     # Create tabs for categorization and settings
     tab1, tab2 = st.tabs(["Categorization", "Settings"])
     
-    with tab1: # Categorization Tab (Indent level 1: 4 spaces)
-        st.write("## AI Model Selection") # Indent level 2: 8 spaces
+    with tab1: # Categorization Tab
+        st.write("## AI Model Selection")
         
         # Consensus mode selection
-        st.write("### Consensus Mode") # Indent level 2: 8 spaces
-        consensus_mode = st.radio( # Indent level 2: 8 spaces
+        st.write("### Consensus Mode")
+        consensus_mode = st.radio(
             "Consensus Mode",
             ["Standard", "Parallel Consensus", "Sequential Consensus"],
             help="Standard: Single model categorization. Parallel: Multiple models categorize independently. Sequential: Models review each other's work."
         )
         
-        if consensus_mode == "Standard": # Indent level 2: 8 spaces
+        if consensus_mode == "Standard":
             # Single model selection
-            default_standard_model = "google__gemini_2_0_flash_001" # Indent level 3: 12 spaces
-            if default_standard_model not in UPDATED_MODEL_LIST: # Indent level 3: 12 spaces
-                default_standard_model = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None # Indent level 4: 16 spaces
+            default_standard_model = "google__gemini_2_0_flash_001"
+            if default_standard_model not in UPDATED_MODEL_LIST:
+                default_standard_model = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None
 
-            model = st.selectbox( # Indent level 3: 12 spaces
+            model = st.selectbox(
                 "Select AI Model",
                 UPDATED_MODEL_LIST,
                 index=UPDATED_MODEL_LIST.index(default_standard_model) if default_standard_model in UPDATED_MODEL_LIST else 0,
@@ -87,13 +87,13 @@ def document_categorization():
             )
             
             # Two-stage categorization option
-            use_two_stage = st.checkbox( # Indent level 3: 12 spaces
+            use_two_stage = st.checkbox(
                 "Use two-stage categorization",
                 help="First categorize as PII/non-PII, then apply specific categories to non-PII documents."
             )
             
-            if use_two_stage: # Indent level 3: 12 spaces
-                confidence_threshold = st.slider( # Indent level 4: 16 spaces
+            if use_two_stage:
+                confidence_threshold = st.slider(
                     "Confidence threshold for second-stage",
                     min_value=0.0,
                     max_value=1.0,
@@ -101,32 +101,34 @@ def document_categorization():
                     step=0.01,
                     help="Documents with first-stage confidence below this threshold will undergo second-stage categorization."
                 )
-            else: # Indent level 3: 12 spaces
-                confidence_threshold = 0.6  # Default value # Indent level 4: 16 spaces
+            else:
+                confidence_threshold = 0.6  # Default value
         
-        elif consensus_mode == "Parallel Consensus": # Indent level 2: 8 spaces
-            st.write("Select models for parallel consensus:") # Indent level 3: 12 spaces
+        elif consensus_mode == "Parallel Consensus":
+            # Multiple model selection
+            st.write("Select models for parallel consensus:")
             
-            default_parallel_models = [ # Indent level 3: 12 spaces
+            default_parallel_models = [
                 m for m in ["google__gemini_2_0_flash_001", "aws__claude_3_sonnet", "azure__openai__gpt_4_1"]
                 if m in UPDATED_MODEL_LIST
             ]
-            if not default_parallel_models and UPDATED_MODEL_LIST: # Indent level 3: 12 spaces
-                default_parallel_models = [UPDATED_MODEL_LIST[0]] # Indent level 4: 16 spaces
+            if not default_parallel_models and UPDATED_MODEL_LIST: # Ensure at least one default if possible
+                default_parallel_models = [UPDATED_MODEL_LIST[0]]
 
-            models = st.multiselect( # Indent level 3: 12 spaces
+            models = st.multiselect(
                 "Select models for parallel consensus:",
                 options=UPDATED_MODEL_LIST,
                 default=default_parallel_models
             )
             
-            use_two_stage = st.checkbox( # Indent level 3: 12 spaces
+            # Two-stage categorization option
+            use_two_stage = st.checkbox(
                 "Use two-stage categorization",
                 help="First categorize as PII/non-PII, then apply specific categories to non-PII documents."
             )
             
-            if use_two_stage: # Indent level 3: 12 spaces
-                confidence_threshold = st.slider( # Indent level 4: 16 spaces
+            if use_two_stage:
+                confidence_threshold = st.slider(
                     "Confidence threshold for second-stage",
                     min_value=0.0,
                     max_value=1.0,
@@ -134,18 +136,18 @@ def document_categorization():
                     step=0.01,
                     help="Documents with first-stage confidence below this threshold will undergo second-stage categorization."
                 )
-            else: # Indent level 3: 12 spaces
-                confidence_threshold = 0.6  # Default value # Indent level 4: 16 spaces
+            else:
+                confidence_threshold = 0.6  # Default value
         
-        else:  # Sequential Consensus # Indent level 2: 8 spaces
-            st.write("### Select models for sequential consensus:") # Indent level 3: 12 spaces
+        else:  # Sequential Consensus
+            st.write("### Select models for sequential consensus:")
             
             # Model 1 (Initial Analysis)
-            st.write("#### Model 1 (Initial Analysis)") # Indent level 3: 12 spaces
-            default_model1 = "google__gemini_2_0_flash_001" # Indent level 3: 12 spaces
-            if default_model1 not in UPDATED_MODEL_LIST: # Indent level 3: 12 spaces
-                default_model1 = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None # Indent level 4: 16 spaces
-            model1 = st.selectbox( # Indent level 3: 12 spaces
+            st.write("#### Model 1 (Initial Analysis)")
+            default_model1 = "google__gemini_2_0_flash_001"
+            if default_model1 not in UPDATED_MODEL_LIST:
+                default_model1 = UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None
+            model1 = st.selectbox(
                 "Model 1 (Initial Analysis)",
                 UPDATED_MODEL_LIST,
                 index=UPDATED_MODEL_LIST.index(default_model1) if default_model1 in UPDATED_MODEL_LIST else 0,
@@ -153,11 +155,11 @@ def document_categorization():
             )
             
             # Model 2 (Expert Review)
-            st.write("#### Model 2 (Expert Review)") # Indent level 3: 12 spaces
-            default_model2 = "aws__claude_3_sonnet" # Indent level 3: 12 spaces
-            if default_model2 not in UPDATED_MODEL_LIST: # Indent level 3: 12 spaces
-                default_model2 = UPDATED_MODEL_LIST[1] if len(UPDATED_MODEL_LIST) > 1 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None) # Indent level 4: 16 spaces
-            model2 = st.selectbox( # Indent level 3: 12 spaces
+            st.write("#### Model 2 (Expert Review)")
+            default_model2 = "aws__claude_3_sonnet"
+            if default_model2 not in UPDATED_MODEL_LIST:
+                default_model2 = UPDATED_MODEL_LIST[1] if len(UPDATED_MODEL_LIST) > 1 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None)
+            model2 = st.selectbox(
                 "Model 2 (Expert Review)",
                 UPDATED_MODEL_LIST,
                 index=UPDATED_MODEL_LIST.index(default_model2) if default_model2 in UPDATED_MODEL_LIST else 0,
@@ -165,13 +167,13 @@ def document_categorization():
             )
             
             # Model 3 will be used for arbitration only when needed
-            st.write("#### Model 3 will be used for arbitration only when needed:") # Indent level 3: 12 spaces
+            st.write("#### Model 3 will be used for arbitration only when needed:")
             
             # Model 3 (Arbitration)
-            default_model3 = "aws__claude_3_5_sonnet" # Indent level 3: 12 spaces
-            if default_model3 not in UPDATED_MODEL_LIST: # Indent level 3: 12 spaces
-                default_model3 = UPDATED_MODEL_LIST[2] if len(UPDATED_MODEL_LIST) > 2 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None) # Indent level 4: 16 spaces
-            model3 = st.selectbox( # Indent level 3: 12 spaces
+            default_model3 = "aws__claude_3_5_sonnet" # Changed from anthropic__claude_3_5_sonnet
+            if default_model3 not in UPDATED_MODEL_LIST:
+                default_model3 = UPDATED_MODEL_LIST[2] if len(UPDATED_MODEL_LIST) > 2 else (UPDATED_MODEL_LIST[0] if UPDATED_MODEL_LIST else None)
+            model3 = st.selectbox(
                 "Model 3 (Arbitration)",
                 UPDATED_MODEL_LIST,
                 index=UPDATED_MODEL_LIST.index(default_model3) if default_model3 in UPDATED_MODEL_LIST else 0,
@@ -179,10 +181,10 @@ def document_categorization():
             )
             
             # Sequential Consensus Parameters
-            st.write("### Sequential Consensus Parameters") # Indent level 3: 12 spaces
+            st.write("### Sequential Consensus Parameters")
             
             # Disagreement threshold
-            disagreement_threshold = st.slider( # Indent level 3: 12 spaces
+            disagreement_threshold = st.slider(
                 "Disagreement Threshold",
                 min_value=0.1,
                 max_value=0.5,
@@ -192,13 +194,13 @@ def document_categorization():
             )
             
             # Two-stage categorization option
-            use_two_stage = st.checkbox( # Indent level 3: 12 spaces
+            use_two_stage = st.checkbox(
                 "Use two-stage categorization",
                 help="First categorize as PII/non-PII, then apply specific categories to non-PII documents."
             )
             
-            if use_two_stage: # Indent level 3: 12 spaces
-                confidence_threshold = st.slider( # Indent level 4: 16 spaces
+            if use_two_stage:
+                confidence_threshold = st.slider(
                     "Confidence threshold for second-stage",
                     min_value=0.0,
                     max_value=1.0,
@@ -206,197 +208,143 @@ def document_categorization():
                     step=0.01,
                     help="Documents with first-stage confidence below this threshold will undergo second-stage categorization."
                 )
-            else: # Indent level 3: 12 spaces
-                confidence_threshold = 0.6  # Default value # Indent level 4: 16 spaces
+            else:
+                confidence_threshold = 0.6  # Default value
         
-        st.write("## Categorization Options") # Indent level 2: 8 spaces
+        st.write("## Categorization Options")
         
-        source_option = st.radio( # Indent level 2: 8 spaces
-            "Select document source for categorization:",
-            ("Selected in File Browser", "Specific Folder ID"),
-            key="categorization_source_option"
-        )
-
-        folder_id_input = "323454589704" # Default value # Indent level 2: 8 spaces
-        if source_option == "Specific Folder ID": # Indent level 2: 8 spaces
-            folder_id_input = st.text_input("Box Folder ID", value=folder_id_input) # Indent level 3: 12 spaces
+        # Folder selection
+        folder_id = st.text_input("Box Folder ID", value="323454589704")
         
         # Start and cancel buttons
-        col1, col2 = st.columns(2) # Indent level 2: 8 spaces
-        with col1: # Indent level 2: 8 spaces
-            start_button = st.button("Start Categorization") # Indent level 3: 12 spaces
-        with col2: # Indent level 2: 8 spaces
-            cancel_button = st.button("Cancel Categorization") # Indent level 3: 12 spaces
+        col1, col2 = st.columns(2)
+        with col1:
+            start_button = st.button("Start Categorization")
+        with col2:
+            cancel_button = st.button("Cancel Categorization")
         
         # Process categorization
-        if start_button: # Indent level 2: 8 spaces
-            st.session_state.document_categorization["is_categorized"] = False # Indent level 3: 12 spaces
-            st.session_state.document_categorization["results"] = [] # Indent level 3: 12 spaces
-            st.session_state.document_categorization["errors"] = [] # Indent level 3: 12 spaces
+        if start_button:
+            st.session_state.document_categorization["is_categorized"] = False
+            st.session_state.document_categorization["results"] = []
+            st.session_state.document_categorization["errors"] = []
             
-            files_to_process = [] # Indent level 3: 12 spaces
-            proceed_with_categorization = False # Indent level 3: 12 spaces
-
-            if source_option == "Selected in File Browser": # Indent level 3: 12 spaces
-                selected_file_ids = st.session_state.get("selected_files", []) # Indent level 4: 16 spaces
-                selected_folder_ids = st.session_state.get("selected_folders", []) # Indent level 4: 16 spaces
+            # Get folder contents
+            try:
+                folder = st.session_state.client.folder(folder_id).get()
+                items = folder.get_items()
                 
-                if not selected_file_ids and not selected_folder_ids: # Indent level 4: 16 spaces
-                    st.warning("No files or folders selected in File Browser. Please select items in Step 2: Select Files (if available in the app) or choose 'Specific Folder ID'.") # Indent level 5: 20 spaces
-                else: # Indent level 4: 16 spaces
-                    temp_file_objects = {} # Indent level 5: 20 spaces
-                    try: # Indent level 5: 20 spaces
-                        if selected_file_ids: # Indent level 6: 24 spaces
-                            st.write(f"Processing {len(selected_file_ids)} individually selected files...") # Indent level 7: 28 spaces
-                            for file_id in selected_file_ids: # Indent level 7: 28 spaces
-                                if file_id not in temp_file_objects: # Indent level 8: 32 spaces
-                                    file_obj = st.session_state.client.file(file_id).get() # Indent level 9: 36 spaces
-                                    temp_file_objects[file_id] = file_obj # Indent level 9: 36 spaces
+                # Filter for files only
+                files = [item for item in items if item.type == "file"]
 
-                        if selected_folder_ids: # Indent level 6: 24 spaces
-                            st.write(f"Processing files from {len(selected_folder_ids)} selected folders...") # Indent level 7: 28 spaces
-                            for folder_id_val in selected_folder_ids: # Indent level 7: 28 spaces
-                                folder_obj = st.session_state.client.folder(folder_id_val).get() # Indent level 8: 32 spaces
-                                st.write(f"Fetching items from folder: {folder_obj.name}") # Indent level 8: 32 spaces
-                                items_in_folder = folder_obj.get_items() # Indent level 8: 32 spaces
-                                for item in items_in_folder: # Indent level 8: 32 spaces
-                                    if item.type == "file" and item.id not in temp_file_objects: # Indent level 9: 36 spaces
-                                        temp_file_objects[item.id] = item # Indent level 10: 40 spaces
+                if not files:
+                    st.warning("No files found in the specified folder.")
+                else:
+                    # Process each file
+                    progress_text = st.empty()
 
-                        files_to_process = list(temp_file_objects.values()) # Indent level 6: 24 spaces
-                        if files_to_process: # Indent level 6: 24 spaces
-                            st.info(f"Found {len(files_to_process)} unique files from File Browser selections.") # Indent level 7: 28 spaces
-                            proceed_with_categorization = True # Indent level 7: 28 spaces
-                        else: # Indent level 6: 24 spaces
-                            st.warning("No processable files found in the selected items from File Browser.") # Indent level 7: 28 spaces
+                    if consensus_mode == "Standard":
+                        progress_text.info(f"Processing {len(files)} files with {model}...")
 
-                    except Exception as e: # Indent level 5: 20 spaces
-                        st.error(f"Error accessing selected items: {str(e)}") # Indent level 6: 24 spaces
-                        logger.error(f"Error processing selections from File Browser: {str(e)}") # Indent level 6: 24 spaces
-
-            elif source_option == "Specific Folder ID": # Indent level 3: 12 spaces
-                if not folder_id_input: # Indent level 4: 16 spaces
-                    st.warning("Please enter a Box Folder ID.") # Indent level 5: 20 spaces
-                else: # Indent level 4: 16 spaces
-                    try: # Indent level 5: 20 spaces
-                        folder = st.session_state.client.folder(folder_id_input).get() # Indent level 6: 24 spaces
-                        items = folder.get_items() # Indent level 6: 24 spaces
-                        files_to_process = [item for item in items if item.type == "file"] # Indent level 6: 24 spaces
-                        if files_to_process: # Indent level 6: 24 spaces
-                             st.info(f"Found {len(files_to_process)} files in folder '{folder.name}'.") # Indent level 7: 28 spaces
-                             proceed_with_categorization = True # Indent level 7: 28 spaces
-                        else: # Indent level 6: 24 spaces
-                            st.warning(f"No files found in the folder ID: {folder_id_input}") # Indent level 7: 28 spaces
-                    except Exception as e: # Indent level 5: 20 spaces
-                        st.error(f"Error accessing folder ID {folder_id_input}: {str(e)}") # Indent level 6: 24 spaces
-                        logger.error(f"Error accessing folder {folder_id_input}: {str(e)}") # Indent level 6: 24 spaces
-
-            if proceed_with_categorization and files_to_process: # Indent level 3: 12 spaces
-                progress_text = st.empty() # Indent level 4: 16 spaces
-
-                if consensus_mode == "Standard": # Indent level 4: 16 spaces
-                    progress_text.info(f"Processing {len(files_to_process)} files with {model}...") # Indent level 5: 20 spaces
-
-                    for file_obj in files_to_process: # Indent level 5: 20 spaces
-                        try: # Indent level 6: 24 spaces
-                            progress_text.info(f"Processing {file_obj.name}...") # Indent level 7: 28 spaces
+                        for file in files:
+                            try:
+                                progress_text.info(f"Processing {file.name}...")
                                 
-                                if use_two_stage: # Indent level 7: 28 spaces
-                                    result = categorize_document_detailed( # Indent level 8: 32 spaces
-                                        file_obj.id,
+                                if use_two_stage:
+                                    result = categorize_document_detailed(
+                                        file.id,
                                         model, 
                                         st.session_state.document_types,
                                         confidence_threshold
                                     )
-                                else: # Indent level 7: 28 spaces
-                                    result = categorize_document( # Indent level 8: 32 spaces
-                                        file_obj.id,
+                                else:
+                                    result = categorize_document(
+                                        file.id,
                                         model, 
                                         st.session_state.document_types
                                     )
                                 
-                                result["file_id"] = file_obj.id # Indent level 7: 28 spaces
-                                result["file_name"] = file_obj.name # Indent level 7: 28 spaces
+                                # Add file info to result
+                                result["file_id"] = file.id
+                                result["file_name"] = file.name
                                 
-                                st.session_state.document_categorization["results"].append(result) # Indent level 7: 28 spaces
+                                # Add to results
+                                st.session_state.document_categorization["results"].append(result)
                                 
-                            except Exception as e: # Indent level 6: 24 spaces
-                                logger.error(f"Error categorizing document {file_obj.name}: {str(e)}") # Indent level 7: 28 spaces
-                                st.session_state.document_categorization["errors"].append({ # Indent level 7: 28 spaces
-                                    "file_id": file_obj.id,
-                                    "file_name": file_obj.name,
+                            except Exception as e:
+                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
+                                st.session_state.document_categorization["errors"].append({
+                                    "file_id": file.id,
+                                    "file_name": file.name,
                                     "error": str(e)
                                 })
                     
-                    elif consensus_mode == "Parallel Consensus": # Indent level 4: 16 spaces
-                        if not models: # Indent level 5: 20 spaces
-                            st.error("Please select at least one model for parallel consensus.") # Indent level 6: 24 spaces
-                        else: # Indent level 5: 20 spaces
-                            progress_text.info(f"Processing {len(files_to_process)} files with {len(models)} models in parallel...") # Indent level 6: 24 spaces
+                    elif consensus_mode == "Parallel Consensus":
+                        if not models:
+                            st.error("Please select at least one model for parallel consensus.")
+                            return
 
-                            for file_obj in files_to_process: # Indent level 6: 24 spaces
-                                try: # Indent level 7: 28 spaces
-                                    progress_text.info(f"Processing {file_obj.name} with parallel consensus...") # Indent level 8: 32 spaces
+                        progress_text.info(f"Processing {len(files)} files with {len(models)} models in parallel...")
+
+                        for file in files:
+                            try:
+                                progress_text.info(f"Processing {file.name} with parallel consensus...")
                                 
-                                    model_results = [] # Indent level 8: 32 spaces
-                                    for model_name_selected in models: # Indent level 8: 32 spaces
-                                        try: # Indent level 9: 36 spaces
-                                            if use_two_stage: # Indent level 10: 40 spaces
-                                                model_result = categorize_document_detailed( # Indent level 11: 44 spaces
-                                                    file_obj.id,
-                                                    model_name_selected,
-                                                    st.session_state.document_types,
-                                                    confidence_threshold
-                                                )
-                                            else: # Indent level 10: 40 spaces
-                                                model_result = categorize_document( # Indent level 11: 44 spaces
-                                                    file_obj.id,
-                                                    model_name_selected,
-                                                    st.session_state.document_types
-                                                )
+                                # Get results from all selected models
+                                model_results = []
+                                for model_name in models:
+                                    try:
+                                        if use_two_stage:
+                                            model_result = categorize_document_detailed(
+                                                file.id,
+                                                model_name,
+                                                st.session_state.document_types,
+                                                confidence_threshold
+                                            )
+                                        else:
+                                            model_result = categorize_document(
+                                                file.id,
+                                                model_name,
+                                                st.session_state.document_types
+                                            )
 
-                                            model_result["model_name"] = model_name_selected # Indent level 10: 40 spaces
-                                            model_results.append(model_result) # Indent level 10: 40 spaces
-                                        except Exception as e: # Indent level 9: 36 spaces
-                                            logger.error(f"Error with model {model_name_selected} for {file_obj.name}: {str(e)}") # Indent level 10: 40 spaces
+                                        model_result["model_name"] = model_name
+                                        model_results.append(model_result)
+                                    except Exception as e:
+                                        logger.error(f"Error with model {model_name} for {file.name}: {str(e)}")
+
+                                if model_results:
+                                    # Combine results from all models
+                                    combined_result = combine_categorization_results(model_results)
                                     
-                                    if model_results: # Indent level 8: 32 spaces
-                                        current_valid_categories = [dtype["name"] for dtype in st.session_state.document_types] # Indent level 9: 36 spaces
-                                        combined_result = combine_categorization_results( # Indent level 9: 36 spaces
-                                            model_results,
-                                            current_valid_categories,
-                                            models
-                                        )
-
-                                        combined_result["file_id"] = file_obj.id # Indent level 9: 36 spaces
-                                        combined_result["file_name"] = file_obj.name # Indent level 9: 36 spaces
-                                        combined_result["model_results"] = model_results # Indent level 9: 36 spaces
-
-                                        st.session_state.document_categorization["results"].append(combined_result) # Indent level 9: 36 spaces
-                                    else: # Indent level 8: 32 spaces
-                                        st.session_state.document_categorization["errors"].append({ # Indent level 9: 36 spaces
-                                            "file_id": file_obj.id,
-                                            "file_name": file_obj.name,
-                                            "error": "All selected parallel models failed to categorize this document."
-                                        })
+                                    # Add file info to result
+                                    combined_result["file_id"] = file.id
+                                    combined_result["file_name"] = file.name
+                                    combined_result["model_results"] = model_results
                                     
-                                except Exception as e: # Indent level 7: 28 spaces
-                                    logger.error(f"Error categorizing document {file_obj.name} with parallel consensus: {str(e)}") # Indent level 8: 32 spaces
-                                    st.session_state.document_categorization["errors"].append({ # Indent level 8: 32 spaces
-                                        "file_id": file_obj.id,
-                                        "file_name": file_obj.name,
-                                        "error": str(e)
-                                    })
+                                    # Add to results
+                                    st.session_state.document_categorization["results"].append(combined_result)
+                                else:
+                                    raise Exception("All models failed to categorize the document")
+
+                            except Exception as e:
+                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
+                                st.session_state.document_categorization["errors"].append({
+                                    "file_id": file.id,
+                                    "file_name": file.name,
+                                    "error": str(e)
+                                })
                     
-                    else:  # Sequential Consensus # Indent level 4: 16 spaces
-                        progress_text.info(f"Processing {len(files_to_process)} files with sequential consensus...") # Indent level 5: 20 spaces
+                    else:  # Sequential Consensus
+                        progress_text.info(f"Processing {len(files)} files with sequential consensus...")
                         
-                        for file_obj in files_to_process: # Indent level 5: 20 spaces
-                            try: # Indent level 6: 24 spaces
-                                progress_text.info(f"Processing {file_obj.name} with sequential consensus...") # Indent level 7: 28 spaces
+                        for file in files:
+                            try:
+                                progress_text.info(f"Processing {file.name} with sequential consensus...")
                                 
-                                result = categorize_document_with_sequential_consensus( # Indent level 7: 28 spaces
-                                    file_obj.id,
+                                # Use sequential consensus implementation
+                                result = categorize_document_with_sequential_consensus(
+                                    file.id,
                                     model1,
                                     model2,
                                     model3,
@@ -404,45 +352,47 @@ def document_categorization():
                                     disagreement_threshold
                                 )
                                 
-                                result["file_id"] = file_obj.id # Indent level 7: 28 spaces
-                                result["file_name"] = file_obj.name # Indent level 7: 28 spaces
+                                # Add file info to result
+                                result["file_id"] = file.id
+                                result["file_name"] = file.name
                                 
-                                st.session_state.document_categorization["results"].append(result) # Indent level 7: 28 spaces
+                                # Add to results
+                                st.session_state.document_categorization["results"].append(result)
                                 
-                            except Exception as e: # Indent level 6: 24 spaces
-                                logger.error(f"Error categorizing document {file_obj.name} with sequential consensus: {str(e)}") # Indent level 7: 28 spaces
-                                st.session_state.document_categorization["errors"].append({ # Indent level 7: 28 spaces
-                                    "file_id": file_obj.id,
-                                    "file_name": file_obj.name,
+                            except Exception as e:
+                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
+                                st.session_state.document_categorization["errors"].append({
+                                    "file_id": file.id,
+                                    "file_name": file.name,
                                     "error": str(e)
                                 })
                     
-                if progress_text: progress_text.empty() # Indent level 4: 16 spaces
-                st.session_state.document_categorization["is_categorized"] = True # Indent level 4: 16 spaces
-                num_processed = len(st.session_state.document_categorization["results"]) # Indent level 4: 16 spaces
-                num_errors = len(st.session_state.document_categorization["errors"]) # Indent level 4: 16 spaces
+                    # Update status
+                    progress_text.empty()
+                    st.session_state.document_categorization["is_categorized"] = True
+                    num_processed = len(st.session_state.document_categorization["results"])
+                    num_errors = len(st.session_state.document_categorization["errors"])
+                    if num_errors == 0:
+                        st.success(f"Categorization complete! Processed {num_processed} files.")
+                    else:
+                        st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.")
 
-                if num_processed == 0 and num_errors == 0 and not proceed_with_categorization: # Indent level 4: 16 spaces
-                    pass # Indent level 5: 20 spaces
-                elif num_errors == 0 and num_processed > 0: # Indent level 4: 16 spaces
-                    st.success(f"Categorization complete! Processed {num_processed} files.") # Indent level 5: 20 spaces
-                elif num_processed > 0 and num_errors > 0: # Indent level 4: 16 spaces
-                    st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.") # Indent level 5: 20 spaces
-                elif num_processed == 0 and num_errors > 0 : # Indent level 4: 16 spaces
-                    st.error(f"Categorization failed for all {num_errors} attempted items.") # Indent level 5: 20 spaces
+            except Exception as e:
+                st.error(f"Error accessing folder: {str(e)}")
 
-        if st.session_state.document_categorization.get("is_categorized", False): # Indent level 2: 8 spaces
-            display_categorization_results() # Indent level 3: 12 spaces
+        # --- Results Display ---
+        if st.session_state.document_categorization.get("is_categorized", False):
+            display_categorization_results()
     
-    with tab2: # Settings Tab # Indent level 1: 4 spaces
-        st.write("### Settings") # Indent level 2: 8 spaces
-        st.write("#### Document Types Configuration") # Indent level 2: 8 spaces
-        configure_document_types() # Indent level 2: 8 spaces
+    with tab2: # Settings Tab
+        st.write("### Settings")
+        st.write("#### Document Types Configuration")
+        configure_document_types()
 
-        st.write("#### Confidence Configuration") # Indent level 2: 8 spaces
-        configure_confidence_thresholds() # Indent level 2: 8 spaces
-        with st.expander("Confidence Validation", expanded=False): # Indent level 2: 8 spaces
-            validate_confidence_with_examples() # Indent level 3: 12 spaces
+        st.write("#### Confidence Configuration")
+        configure_confidence_thresholds()
+        with st.expander("Confidence Validation", expanded=False):
+            validate_confidence_with_examples()
 
 # --- UI Helper Functions (Settings, Results Display) ---
 
@@ -452,9 +402,11 @@ def configure_document_types():
     """
     st.write("Define the categories you want to use for document classification.")
     
+    # Use a list of dictionaries for document types
     if "document_types" not in st.session_state:
         st.session_state.document_types = []
     
+    # Display existing types
     for i, doc_type in enumerate(st.session_state.document_types):
         col1, col2, col3 = st.columns([3, 5, 1])
         with col1:
@@ -466,9 +418,11 @@ def configure_document_types():
                 st.session_state.document_types.pop(i)
                 st.rerun()
                 
+        # Update the dictionary in the list
         st.session_state.document_types[i]["name"] = new_name
         st.session_state.document_types[i]["description"] = new_desc
     
+    # Add new type
     st.write("#### Add New Document Type")
     col1, col2, col3 = st.columns([3, 5, 1])
     with col1:
@@ -477,7 +431,7 @@ def configure_document_types():
         new_desc = st.text_input("Description", key="new_doc_type_desc")
     with col3:
         if st.button("➕", key="add_doc_type", help="Add this document type"):
-            if new_name:
+            if new_name:  # Only add if name is provided
                 st.session_state.document_types.append({
                     "name": new_name,
                     "description": new_desc
@@ -490,6 +444,7 @@ def configure_confidence_thresholds():
     """
     st.write("Configure confidence thresholds for automatic actions.")
     
+    # Initialize confidence thresholds if not in session state
     if "confidence_thresholds" not in st.session_state:
         st.session_state.confidence_thresholds = {
             "auto_accept": 0.85,
@@ -497,6 +452,7 @@ def configure_confidence_thresholds():
             "rejection": 0.4
         }
     
+    # Sliders for thresholds
     st.session_state.confidence_thresholds["auto_accept"] = st.slider(
         "Auto-accept threshold",
         min_value=0.0,
@@ -538,6 +494,7 @@ def validate_confidence_with_examples():
         step=0.01
     )
     
+    # Determine status based on thresholds
     if test_confidence >= st.session_state.confidence_thresholds["auto_accept"]:
         status = "Auto-Accepted"
         color = "green"
@@ -559,12 +516,15 @@ def display_categorization_results():
     """
     st.write("## Categorization Results")
     
+    # Create tabs for different views
     tab1, tab2 = st.tabs(["Table View", "Detailed View"])
     
     with tab1:
+        # Create a DataFrame from results
         if st.session_state.document_categorization["results"]:
             data = []
             for result in st.session_state.document_categorization["results"]:
+                # Determine status based on confidence
                 confidence = result.get("calibrated_confidence", result.get("confidence", 0.0))
                 
                 if confidence >= st.session_state.confidence_thresholds["auto_accept"]:
@@ -576,6 +536,7 @@ def display_categorization_results():
                 else:
                     status = "Auto-Rejected"
                 
+                # Get consensus info if available
                 consensus_info = ""
                 if "model_results" in result:
                     consensus_info = f"Parallel: {len(result['model_results'])} models"
@@ -594,6 +555,7 @@ def display_categorization_results():
             
             df = pd.DataFrame(data)
             
+            # Function to color status cells
             def color_status(val):
                 if val == "Auto-Accepted":
                     return 'background-color: #c6efce; color: #006100'
@@ -602,6 +564,7 @@ def display_categorization_results():
                 else:
                     return 'background-color: #ffc7ce; color: #9c0006'
             
+            # Display the styled DataFrame
             st.dataframe(
                 df.style.map(color_status, subset=["Status"]),
                 use_container_width=True
@@ -610,10 +573,12 @@ def display_categorization_results():
             st.info("No categorization results available.")
     
     with tab2:
+        # Detailed view with selection
         if st.session_state.document_categorization["results"]:
             file_names = [result["file_name"] for result in st.session_state.document_categorization["results"]]
             selected_file = st.selectbox("Select a file to view details", file_names)
             
+            # Find the selected result
             selected_result = next(
                 (r for r in st.session_state.document_categorization["results"] if r["file_name"] == selected_file),
                 None
@@ -630,10 +595,12 @@ def display_detailed_result(result):
     """
     st.markdown(f"# {result['file_name']} - {result['document_type']}")
     
+    # Display overall confidence
     confidence = result.get("calibrated_confidence", result.get("confidence", 0.0))
     confidence_color = "green" if confidence >= 0.8 else "orange" if confidence >= 0.6 else "red"
     st.markdown(f"## Overall Confidence: <span style='color:{confidence_color}'>{'High' if confidence >= 0.8 else 'Medium' if confidence >= 0.6 else 'Low'} ({confidence:.2f})</span>", unsafe_allow_html=True)
     
+    # Display sequential consensus details if available
     if "sequential_consensus" in result:
         st.markdown("## Sequential Consensus Details")
         
@@ -641,20 +608,26 @@ def display_detailed_result(result):
         agreement_color = "green" if agreement_level == "Full Agreement" else "orange" if agreement_level == "Partial Agreement" else "red"
         st.markdown(f"### Agreement Level: <span style='color:{agreement_color}'>{agreement_level}</span>", unsafe_allow_html=True)
         
+        # Create tabs for each model
         model_tabs = st.tabs(["Model 1 (Initial)", "Model 2 (Review)", "Model 3 (Arbitration)"])
         
+        # Model 1 tab
         with model_tabs[0]:
             if "model1_result" in result:
                 model1 = result["model1_result"]
                 st.markdown(f"### Model: {model1.get('model_name', 'Unknown')}")
                 st.markdown(f"### Category: {model1.get('document_type', 'Unknown')}")
                 st.markdown(f"### Confidence: {model1.get('confidence', 0.0):.2f}")
+
                 st.markdown("### Reasoning:")
                 st.markdown(model1.get("reasoning", "No reasoning provided"))
         
+        # Model 2 tab
         with model_tabs[1]:
             if "model2_result" in result:
                 model2_details = result["model2_result"]
+
+                # Check for and display Model 2's independent initial assessment
                 if "independent_assessment" in model2_details and isinstance(model2_details["independent_assessment"], dict):
                     independent_assessment = model2_details["independent_assessment"]
                     st.markdown("#### Model 2: Independent Initial Assessment")
@@ -662,57 +635,74 @@ def display_detailed_result(result):
                     st.markdown(f"Independent Confidence: {independent_assessment.get('confidence', 0.0):.2f}")
                     st.markdown("Independent Reasoning:")
                     st.markdown(independent_assessment.get('reasoning', 'No reasoning provided'))
-                    st.markdown("---")
-                    st.markdown("#### Model 2: Final Review Assessment (after seeing Model 1)")
+                    st.markdown("---") # Visual separator
+                    st.markdown("#### Model 2: Final Review Assessment (after seeing Model 1)") # Title for the final review part
                 else:
+                    # If no independent assessment, still show a title for consistency or fallback
                     st.markdown("#### Model 2: Review Assessment")
+
+                # Display Model 2's final (potentially reviewed) assessment
                 st.markdown(f"### Model: {model2_details.get('model_name', 'Unknown')}")
                 st.markdown(f"### Category: {model2_details.get('document_type', 'Unknown')}")
                 st.markdown(f"### Confidence: {model2_details.get('confidence', 0.0):.2f}")
-                st.markdown("### Review Assessment Details:")
+
+                st.markdown("### Review Assessment Details:") # Changed title for clarity
                 if "review_assessment" in model2_details:
                     st.markdown(f"**Agreement Level:** {model2_details['review_assessment'].get('agreement_level', 'Unknown')}")
                     st.markdown(f"**Assessment Reasoning:** {model2_details['review_assessment'].get('assessment_reasoning', 'No assessment provided')}")
+
                 st.markdown("### Confidence Adjustment Factors:")
                 if "confidence_adjustment_factors" in model2_details:
                     factors = model2_details["confidence_adjustment_factors"]
                     st.markdown(f"* Agreement Bonus: {factors.get('agreement_bonus', 0.0):.2f}")
                     st.markdown(f"* Disagreement Penalty: {factors.get('disagreement_penalty', 0.0):.2f}")
                     st.markdown(f"* Reasoning Quality: {factors.get('reasoning_quality', 0.0):.2f}")
-                st.markdown("### Final Reasoning:")
+
+                st.markdown("### Final Reasoning:") # Changed title for clarity
                 st.markdown(model2_details.get("reasoning", "No reasoning provided"))
         
+        # Model 3 tab
         with model_tabs[2]:
             if "model3_result" in result:
                 model3 = result["model3_result"]
                 st.markdown(f"### Model: {model3.get('model_name', 'Unknown')}")
                 st.markdown(f"### Category: {model3.get('document_type', 'Unknown')}")
                 st.markdown(f"### Confidence: {model3.get('confidence', 0.0):.2f}")
+
                 if "arbitration_assessment" in model3:
                     st.markdown("### Arbitration Assessment:")
                     st.markdown(f"#### Model 1 Assessment: {model3['arbitration_assessment'].get('model1_assessment', 'No assessment provided')}")
                     st.markdown(f"#### Model 2 Assessment: {model3['arbitration_assessment'].get('model2_assessment', 'No assessment provided')}")
                     st.markdown(f"#### Arbitration Reasoning: {model3['arbitration_assessment'].get('arbitration_reasoning', 'No reasoning provided')}")
+
                 st.markdown("### Reasoning:")
                 st.markdown(model3.get("reasoning", "No reasoning provided"))
             else:
                 st.markdown("### No arbitration was needed")
                 st.markdown("Model 3 was not used because there was sufficient agreement between Models 1 and 2.")
     
+    # Display parallel consensus details if available
     elif "model_results" in result:
         st.markdown("## Parallel Consensus Details")
+
+        # Create tabs for each model
         model_names = [model.get("model_name", f"Model {i+1}") for i, model in enumerate(result["model_results"])]
         model_tabs = st.tabs(model_names)
+
         for i, (tab, model_result) in enumerate(zip(model_tabs, result["model_results"])):
             with tab:
                 st.markdown(f"### Model: {model_result.get('model_name', 'Unknown')}")
                 st.markdown(f"### Category: {model_result.get('document_type', 'Unknown')}")
                 st.markdown(f"### Confidence: {model_result.get('confidence', 0.0):.2f}")
+
                 st.markdown("### Reasoning:")
                 st.markdown(model_result.get("reasoning", "No reasoning provided"))
     
+    # Standard display for single model results
     else:
+        # Display confidence breakdown
         st.markdown("### Confidence Breakdown")
+
         multi_factor_confidence = result.get("multi_factor_confidence", {})
         if multi_factor_confidence:
             factors = [
@@ -722,21 +712,26 @@ def display_detailed_result(result):
                 {"factor": "Reasoning Quality", "value": multi_factor_confidence.get("reasoning_quality", 0.0)},
                 {"factor": "Document Features Match", "value": multi_factor_confidence.get("document_features_match", 0.0)}
             ]
+
             for factor in factors:
                 factor_value = factor["value"]
                 factor_color = "green" if factor_value >= 0.8 else "orange" if factor_value >= 0.6 else "red"
                 st.markdown(f"{factor['factor']}: <span style='color:{factor_color}'>{factor_value:.2f}</span>", unsafe_allow_html=True)
+                # Create a progress bar
                 st.progress(factor_value)
         
+        # Display two-stage information if available
         if result.get("first_stage_type"):
             st.markdown("### Two-Stage Analysis")
             st.markdown(f"**First Stage Category:** {result['first_stage_type']}")
             st.markdown(f"**First Stage Confidence:** {result.get('first_stage_confidence', 0.0):.2f}")
             st.markdown("**Second Stage Analysis:** Performed due to low initial confidence")
     
+    # Common display elements for all result types
     st.markdown("### Reasoning")
     st.markdown(result.get("reasoning", "No reasoning provided"))
     
+    # Display document features in a separate section
     if "document_features" in result:
         st.markdown("### Document Features")
         features = result["document_features"]
