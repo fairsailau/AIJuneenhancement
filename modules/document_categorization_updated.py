@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 
 # Import the sequential consensus implementation
-from modules.sequential_consensus_implementation import categorize_document_with_sequential_consensus
+from modules.sequential_consensus_implementation_enhanced import categorize_document_with_sequential_consensus
 from modules.document_categorization_utils import (
     categorize_document,
     extract_document_features,
@@ -213,8 +213,24 @@ def document_categorization():
         
         st.write("## Categorization Options")
         
-        # Folder selection
-        folder_id = st.text_input("Box Folder ID", value="323454589704")
+        # Selection mode: Files or Folder
+        selection_mode = st.radio(
+            "Select files from:",
+            ["Selected Files", "Box Folder"],
+            help="Process files you've already selected or specify a Box folder to process all files within it."
+        )
+        
+        if selection_mode == "Selected Files":
+            # Display selected files
+            if not st.session_state.selected_files:
+                st.warning("No files selected. Please go to the 'Select Files' step first or choose 'Box Folder' option.")
+            else:
+                st.write(f"Processing {len(st.session_state.selected_files)} selected files:")
+                for file in st.session_state.selected_files:
+                    st.write(f"- {file['name']}")
+        else:  # Box Folder
+            # Folder selection
+            folder_id = st.text_input("Box Folder ID", value="323454589704")
         
         # Start and cancel buttons
         col1, col2 = st.columns(2)
@@ -229,511 +245,459 @@ def document_categorization():
             st.session_state.document_categorization["results"] = []
             st.session_state.document_categorization["errors"] = []
             
-            # Get folder contents
-            try:
-                folder = st.session_state.client.folder(folder_id).get()
-                items = folder.get_items()
-                
-                # Filter for files only
-                files = [item for item in items if item.type == "file"]
-
-                if not files:
-                    st.warning("No files found in the specified folder.")
+            # Get files to process based on selection mode
+            files_to_process = []
+            
+            if selection_mode == "Selected Files":
+                if not st.session_state.selected_files:
+                    st.error("No files selected. Please go to the 'Select Files' step first or choose 'Box Folder' option.")
                 else:
-                    # Process each file
-                    progress_text = st.empty()
-
-                    if consensus_mode == "Standard":
-                        progress_text.info(f"Processing {len(files)} files with {model}...")
-
-                        for file in files:
-                            try:
-                                progress_text.info(f"Processing {file.name}...")
-                                
-                                if use_two_stage:
-                                    result = categorize_document_detailed(
-                                        file.id,
-                                        model, 
-                                        st.session_state.document_types,
-                                        confidence_threshold
-                                    )
-                                else:
-                                    result = categorize_document(
-                                        file.id,
-                                        model, 
-                                        st.session_state.document_types
-                                    )
-                                
-                                # Add file info to result
-                                result["file_id"] = file.id
-                                result["file_name"] = file.name
-                                
-                                # Add to results
-                                st.session_state.document_categorization["results"].append(result)
-                                
-                            except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
-                                st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
-                                    "error": str(e)
-                                })
+                    # Use the selected files directly
+                    files_to_process = [
+                        {"id": file["id"], "name": file["name"], "type": file["type"]} 
+                        for file in st.session_state.selected_files
+                    ]
+            else:  # Box Folder
+                try:
+                    # Get folder contents
+                    folder = st.session_state.client.folder(folder_id).get()
+                    items = folder.get_items()
                     
-                    elif consensus_mode == "Parallel Consensus":
-                        if not models:
-                            st.error("Please select at least one model for parallel consensus.")
-                            return
+                    # Filter for files only
+                    files_to_process = [
+                        {"id": item.id, "name": item.name, "type": item.type} 
+                        for item in items if item.type == "file"
+                    ]
 
-                        progress_text.info(f"Processing {len(files)} files with {len(models)} models in parallel...")
+                    if not files_to_process:
+                        st.warning("No files found in the specified folder.")
+                except Exception as e:
+                    st.error(f"Error accessing folder: {str(e)}")
+            
+            if files_to_process:
+                # Process each file
+                progress_text = st.empty()
+                progress_text.info(f"Processing {len(files_to_process)} files...")
 
-                        for file in files:
-                            try:
-                                progress_text.info(f"Processing {file.name} with parallel consensus...")
-                                
-                                # Get results from all selected models
-                                model_results = []
-                                for model_name in models:
-                                    try:
-                                        if use_two_stage:
-                                            model_result = categorize_document_detailed(
-                                                file.id,
-                                                model_name,
-                                                st.session_state.document_types,
-                                                confidence_threshold
-                                            )
-                                        else:
-                                            model_result = categorize_document(
-                                                file.id,
-                                                model_name,
-                                                st.session_state.document_types
-                                            )
+                if consensus_mode == "Standard":
+                    progress_text.info(f"Processing {len(files_to_process)} files with {model}...")
 
-                                        model_result["model_name"] = model_name
-                                        model_results.append(model_result)
-                                    except Exception as e:
-                                        logger.error(f"Error with model {model_name} for {file.name}: {str(e)}")
-
-                                if model_results:
-                                    # Combine results from all models
-                                    combined_result = combine_categorization_results(model_results)
-                                    
-                                    # Add file info to result
-                                    combined_result["file_id"] = file.id
-                                    combined_result["file_name"] = file.name
-                                    combined_result["model_results"] = model_results
-                                    
-                                    # Add to results
-                                    st.session_state.document_categorization["results"].append(combined_result)
-                                else:
-                                    raise Exception("All models failed to categorize the document")
-
-                            except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
-                                st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
-                                    "error": str(e)
-                                })
-                    
-                    else:  # Sequential Consensus
-                        progress_text.info(f"Processing {len(files)} files with sequential consensus...")
-                        
-                        for file in files:
-                            try:
-                                progress_text.info(f"Processing {file.name} with sequential consensus...")
-                                
-                                # Use sequential consensus implementation
-                                result = categorize_document_with_sequential_consensus(
-                                    file.id,
-                                    model1,
-                                    model2,
-                                    model3,
+                    for file in files_to_process:
+                        try:
+                            progress_text.info(f"Processing {file['name']}...")
+                            
+                            if use_two_stage:
+                                result = categorize_document_detailed(
+                                    file["id"],
+                                    model, 
                                     st.session_state.document_types,
-                                    disagreement_threshold
+                                    confidence_threshold
                                 )
+                            else:
+                                result = categorize_document(
+                                    file["id"],
+                                    model, 
+                                    st.session_state.document_types
+                                )
+                            
+                            # Add file info to result
+                            result["file_id"] = file["id"]
+                            result["file_name"] = file["name"]
+                            
+                            # Add to results
+                            st.session_state.document_categorization["results"].append(result)
+                            
+                        except Exception as e:
+                            logger.error(f"Error categorizing document {file['name']}: {str(e)}")
+                            st.session_state.document_categorization["errors"].append({
+                                "file_id": file["id"],
+                                "file_name": file["name"],
+                                "error": str(e)
+                            })
+                
+                elif consensus_mode == "Parallel Consensus":
+                    if not models:
+                        st.error("Please select at least one model for parallel consensus.")
+                        return
+
+                    progress_text.info(f"Processing {len(files_to_process)} files with {len(models)} models in parallel...")
+
+                    for file in files_to_process:
+                        try:
+                            progress_text.info(f"Processing {file['name']} with parallel consensus...")
+                            
+                            # Get results from all selected models
+                            model_results = []
+                            for model_name in models:
+                                try:
+                                    if use_two_stage:
+                                        model_result = categorize_document_detailed(
+                                            file["id"],
+                                            model_name,
+                                            st.session_state.document_types,
+                                            confidence_threshold
+                                        )
+                                    else:
+                                        model_result = categorize_document(
+                                            file["id"],
+                                            model_name,
+                                            st.session_state.document_types
+                                        )
+
+                                    model_result["model_name"] = model_name
+                                    model_results.append(model_result)
+                                except Exception as e:
+                                    logger.error(f"Error with model {model_name} for {file['name']}: {str(e)}")
+
+                            if model_results:
+                                # Combine results from all models
+                                combined_result = combine_categorization_results(model_results)
                                 
                                 # Add file info to result
-                                result["file_id"] = file.id
-                                result["file_name"] = file.name
+                                combined_result["file_id"] = file["id"]
+                                combined_result["file_name"] = file["name"]
+                                combined_result["model_results"] = model_results
                                 
                                 # Add to results
-                                st.session_state.document_categorization["results"].append(result)
+                                st.session_state.document_categorization["results"].append(combined_result)
+                            else:
+                                raise Exception("All models failed to categorize the document")
                                 
-                            except Exception as e:
-                                logger.error(f"Error categorizing document {file.name}: {str(e)}")
-                                st.session_state.document_categorization["errors"].append({
-                                    "file_id": file.id,
-                                    "file_name": file.name,
-                                    "error": str(e)
-                                })
-                    
-                    # Update status
-                    progress_text.empty()
-                    st.session_state.document_categorization["is_categorized"] = True
-                    num_processed = len(st.session_state.document_categorization["results"])
-                    num_errors = len(st.session_state.document_categorization["errors"])
-                    if num_errors == 0:
-                        st.success(f"Categorization complete! Processed {num_processed} files.")
-                    else:
-                        st.warning(f"Categorization complete! Processed {num_processed} files with {num_errors} errors.")
-
-            except Exception as e:
-                st.error(f"Error accessing folder: {str(e)}")
-
-        # --- Results Display ---
-        if st.session_state.document_categorization.get("is_categorized", False):
-            display_categorization_results()
-    
-    with tab2: # Settings Tab
-        st.write("### Settings")
-        st.write("#### Document Types Configuration")
-        configure_document_types()
-
-        st.write("#### Confidence Configuration")
-        configure_confidence_thresholds()
-        with st.expander("Confidence Validation", expanded=False):
-            validate_confidence_with_examples()
-
-# --- UI Helper Functions (Settings, Results Display) ---
-
-def configure_document_types():
-    """
-    UI for configuring document types.
-    """
-    st.write("Define the categories you want to use for document classification.")
-    
-    # Use a list of dictionaries for document types
-    if "document_types" not in st.session_state:
-        st.session_state.document_types = []
-    
-    # Display existing types
-    for i, doc_type in enumerate(st.session_state.document_types):
-        col1, col2, col3 = st.columns([3, 5, 1])
-        with col1:
-            new_name = st.text_input(f"Name {i+1}", value=doc_type["name"], key=f"doc_type_name_{i}")
-        with col2:
-            new_desc = st.text_input(f"Description {i+1}", value=doc_type["description"], key=f"doc_type_desc_{i}")
-        with col3:
-            if st.button("❌", key=f"remove_doc_type_{i}", help="Remove this document type"):
-                st.session_state.document_types.pop(i)
-                st.rerun()
+                        except Exception as e:
+                            logger.error(f"Error categorizing document {file['name']} with parallel consensus: {str(e)}")
+                            st.session_state.document_categorization["errors"].append({
+                                "file_id": file["id"],
+                                "file_name": file["name"],
+                                "error": str(e)
+                            })
                 
-        # Update the dictionary in the list
-        st.session_state.document_types[i]["name"] = new_name
-        st.session_state.document_types[i]["description"] = new_desc
-    
-    # Add new type
-    st.write("#### Add New Document Type")
-    col1, col2, col3 = st.columns([3, 5, 1])
-    with col1:
-        new_name = st.text_input("Name", key="new_doc_type_name")
-    with col2:
-        new_desc = st.text_input("Description", key="new_doc_type_desc")
-    with col3:
-        if st.button("➕", key="add_doc_type", help="Add this document type"):
-            if new_name:  # Only add if name is provided
-                st.session_state.document_types.append({
-                    "name": new_name,
-                    "description": new_desc
-                })
-                st.rerun()
+                else:  # Sequential Consensus
+                    progress_text.info(f"Processing {len(files_to_process)} files with sequential consensus...")
 
-def configure_confidence_thresholds():
-    """
-    UI for configuring confidence thresholds.
-    """
-    st.write("Configure confidence thresholds for automatic actions.")
+                    for file in files_to_process:
+                        try:
+                            progress_text.info(f"Processing {file['name']} with sequential consensus...")
+                            
+                            # Use the enhanced sequential consensus implementation
+                            result = categorize_document_with_sequential_consensus(
+                                file["id"],
+                                model1,
+                                model2,
+                                model3,
+                                st.session_state.document_types,
+                                disagreement_threshold
+                            )
+                            
+                            # Add file info to result
+                            result["file_id"] = file["id"]
+                            result["file_name"] = file["name"]
+                            
+                            # Add to results
+                            st.session_state.document_categorization["results"].append(result)
+                            
+                        except Exception as e:
+                            logger.error(f"Error categorizing document {file['name']} with sequential consensus: {str(e)}")
+                            st.session_state.document_categorization["errors"].append({
+                                "file_id": file["id"],
+                                "file_name": file["name"],
+                                "error": str(e)
+                            })
+                
+                # Update status
+                st.session_state.document_categorization["is_categorized"] = True
+                progress_text.success(f"Categorization complete! Processed {len(files_to_process)} files with {len(st.session_state.document_categorization['errors'])} errors.")
+                
+                # Display results
+                display_categorization_results()
     
-    # Initialize confidence thresholds if not in session state
-    if "confidence_thresholds" not in st.session_state:
-        st.session_state.confidence_thresholds = {
-            "auto_accept": 0.85,
-            "verification": 0.6,
-            "rejection": 0.4
-        }
-    
-    # Sliders for thresholds
-    st.session_state.confidence_thresholds["auto_accept"] = st.slider(
-        "Auto-accept threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=st.session_state.confidence_thresholds["auto_accept"],
-        step=0.01,
-        help="Documents with confidence above this threshold will be automatically accepted."
-    )
-    
-    st.session_state.confidence_thresholds["verification"] = st.slider(
-        "Verification threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=st.session_state.confidence_thresholds["verification"],
-        step=0.01,
-        help="Documents with confidence above this threshold but below auto-accept will require verification."
-    )
-    
-    st.session_state.confidence_thresholds["rejection"] = st.slider(
-        "Rejection threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=st.session_state.confidence_thresholds["rejection"],
-        step=0.01,
-        help="Documents with confidence below this threshold will be automatically rejected."
-    )
-
-def validate_confidence_with_examples():
-    """
-    UI for validating confidence thresholds with examples.
-    """
-    st.write("Test confidence thresholds with example values.")
-    
-    test_confidence = st.slider(
-        "Test confidence value",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.75,
-        step=0.01
-    )
-    
-    # Determine status based on thresholds
-    if test_confidence >= st.session_state.confidence_thresholds["auto_accept"]:
-        status = "Auto-Accepted"
-        color = "green"
-    elif test_confidence >= st.session_state.confidence_thresholds["verification"]:
-        status = "Needs Verification"
-        color = "orange"
-    elif test_confidence >= st.session_state.confidence_thresholds["rejection"]:
-        status = "Low Confidence"
-        color = "red"
-    else:
-        status = "Auto-Rejected"
-        color = "red"
-    
-    st.markdown(f"Status: <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)
+    with tab2:  # Settings Tab
+        st.write("## Document Categorization Settings")
+        
+        # Document types editor
+        st.write("### Document Types")
+        st.write("Edit the document types and descriptions used for categorization:")
+        
+        # Create a copy of document types for editing
+        if "document_types_edit" not in st.session_state:
+            st.session_state.document_types_edit = st.session_state.document_types.copy()
+        
+        # Display existing document types with edit fields
+        for i, doc_type in enumerate(st.session_state.document_types_edit):
+            col1, col2, col3 = st.columns([0.3, 0.5, 0.2])
+            
+            with col1:
+                doc_type["name"] = st.text_input(
+                    "Category Name",
+                    value=doc_type["name"],
+                    key=f"doc_type_name_{i}"
+                )
+            
+            with col2:
+                doc_type["description"] = st.text_input(
+                    "Description",
+                    value=doc_type["description"],
+                    key=f"doc_type_desc_{i}"
+                )
+            
+            with col3:
+                if st.button("Remove", key=f"remove_doc_type_{i}"):
+                    st.session_state.document_types_edit.pop(i)
+                    st.rerun()
+        
+        # Add new document type
+        st.write("### Add New Document Type")
+        col1, col2, col3 = st.columns([0.3, 0.5, 0.2])
+        
+        with col1:
+            new_type_name = st.text_input("New Category Name", key="new_doc_type_name")
+        
+        with col2:
+            new_type_desc = st.text_input("New Description", key="new_doc_type_desc")
+        
+        with col3:
+            if st.button("Add", key="add_doc_type"):
+                if new_type_name:
+                    st.session_state.document_types_edit.append({
+                        "name": new_type_name,
+                        "description": new_type_desc
+                    })
+                    st.rerun()
+        
+        # Save changes
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Save Changes", key="save_doc_types"):
+                st.session_state.document_types = st.session_state.document_types_edit.copy()
+                st.success("Document types updated successfully!")
+        
+        with col2:
+            if st.button("Reset to Default", key="reset_doc_types"):
+                st.session_state.document_types = [
+                    {"name": "Sales Contract", "description": "Contracts related to sales agreements and terms."},
+                    {"name": "Invoice", "description": "Billing documents issued by a seller to a buyer, indicating quantities, prices for products or services."},
+                    {"name": "Tax", "description": "Documents related to government taxation (e.g., tax forms, filings, receipts)."},
+                    {"name": "Financial Report", "description": "Reports detailing the financial status or performance of an entity."},
+                    {"name": "Employment Contract", "description": "Agreements outlining terms and conditions of employment."},
+                    {"name": "PII", "description": "Documents containing Personally Identifiable Information that needs careful handling."},
+                    {"name": "Other", "description": "Any document not fitting into the specific categories above."}
+                ]
+                st.session_state.document_types_edit = st.session_state.document_types.copy()
+                st.success("Document types reset to default!")
 
 def display_categorization_results():
     """
-    Display categorization results in a table.
+    Display the results of document categorization.
     """
+    if not st.session_state.document_categorization["is_categorized"]:
+        return
+    
     st.write("## Categorization Results")
     
-    # Create tabs for different views
+    # Create tabs for table view and detailed view
     tab1, tab2 = st.tabs(["Table View", "Detailed View"])
     
-    with tab1:
-        # Create a DataFrame from results
+    with tab1:  # Table View
         if st.session_state.document_categorization["results"]:
-            data = []
+            # Create a DataFrame for display
+            results_data = []
+            
             for result in st.session_state.document_categorization["results"]:
-                # Determine status based on confidence
-                confidence = result.get("calibrated_confidence", result.get("confidence", 0.0))
+                # Get confidence level
+                confidence = result.get("calibrated_confidence", result.get("confidence", 0))
                 
-                if confidence >= st.session_state.confidence_thresholds["auto_accept"]:
-                    status = "Auto-Accepted"
-                elif confidence >= st.session_state.confidence_thresholds["verification"]:
-                    status = "Needs Verification"
-                elif confidence >= st.session_state.confidence_thresholds["rejection"]:
-                    status = "Low Confidence"
+                # Determine confidence level text
+                if confidence >= 0.8:
+                    confidence_level = "High"
+                elif confidence >= 0.6:
+                    confidence_level = "Medium"
                 else:
-                    status = "Auto-Rejected"
+                    confidence_level = "Low"
+                
+                # Determine status based on confidence
+                if confidence >= 0.85:
+                    status = "Auto-Accepted"
+                elif confidence >= 0.6:
+                    status = "Needs Review"
+                else:
+                    status = "Low Confidence"
                 
                 # Get consensus info if available
                 consensus_info = ""
-                if "model_results" in result:
-                    consensus_info = f"Parallel: {len(result['model_results'])} models"
-                elif "sequential_consensus" in result:
-                    agreement_level = result["sequential_consensus"].get("agreement_level", "Unknown")
+                if "sequential_consensus" in result:
+                    agreement_level = result["sequential_consensus"].get("agreement_level", "")
                     consensus_info = f"Sequential: {agreement_level}"
+                elif "consensus_info" in result:
+                    consensus_info = f"Parallel: {result['consensus_info'].get('agreement_level', '')}"
                 
-                data.append({
+                # Add to results data
+                results_data.append({
                     "File Name": result["file_name"],
                     "Document Type": result["document_type"],
-                    "Confidence": round(confidence, 2),
-                    "Confidence Level": "High" if confidence >= 0.8 else "Medium" if confidence >= 0.6 else "Low",
+                    "Confidence": f"{confidence:.2f}",
+                    "Confidence Level": confidence_level,
                     "Status": status,
                     "Consensus": consensus_info
                 })
             
-            df = pd.DataFrame(data)
+            # Create DataFrame and display
+            results_df = pd.DataFrame(results_data)
+            st.dataframe(results_df, use_container_width=True)
             
-            # Function to color status cells
-            def color_status(val):
-                if val == "Auto-Accepted":
-                    return 'background-color: #c6efce; color: #006100'
-                elif val == "Needs Verification":
-                    return 'background-color: #ffeb9c; color: #9c5700'
-                else:
-                    return 'background-color: #ffc7ce; color: #9c0006'
-            
-            # Display the styled DataFrame
-            st.dataframe(
-                df.style.map(color_status, subset=["Status"]),
-                use_container_width=True
+            # Export options
+            st.download_button(
+                "Export Results as CSV",
+                results_df.to_csv(index=False).encode('utf-8'),
+                "document_categorization_results.csv",
+                "text/csv",
+                key="export_results_csv"
             )
         else:
             st.info("No categorization results available.")
     
-    with tab2:
-        # Detailed view with selection
+    with tab2:  # Detailed View
         if st.session_state.document_categorization["results"]:
-            file_names = [result["file_name"] for result in st.session_state.document_categorization["results"]]
-            selected_file = st.selectbox("Select a file to view details", file_names)
-            
-            # Find the selected result
-            selected_result = next(
-                (r for r in st.session_state.document_categorization["results"] if r["file_name"] == selected_file),
-                None
-            )
-            
-            if selected_result:
-                display_detailed_result(selected_result)
+            for result in st.session_state.document_categorization["results"]:
+                with st.expander(f"{result['file_name']} - {result['document_type']}", expanded=False):
+                    # Basic info
+                    st.write(f"**Document Type:** {result['document_type']}")
+                    
+                    # Get confidence
+                    confidence = result.get("calibrated_confidence", result.get("confidence", 0))
+                    confidence_color = "green" if confidence >= 0.8 else ("orange" if confidence >= 0.6 else "red")
+                    confidence_text = "High" if confidence >= 0.8 else ("Medium" if confidence >= 0.6 else "Low")
+                    
+                    st.write(f"**Overall Confidence:** <span style='color:{confidence_color}'>{confidence_text} ({confidence:.2f})</span>", unsafe_allow_html=True)
+                    
+                    # Sequential Consensus Details
+                    if "sequential_consensus" in result:
+                        st.write("### Sequential Consensus Details")
+                        
+                        agreement_level = result["sequential_consensus"].get("agreement_level", "Unknown")
+                        st.write(f"**Agreement Level:** {agreement_level}")
+                        
+                        # Create tabs for each model
+                        model_tabs = st.tabs(["Model 1 (Initial)", "Model 2 (Review)", "Model 3 (Arbitration)"])
+                        
+                        # Model 1 tab
+                        with model_tabs[0]:
+                            if "model1_result" in result:
+                                model1 = result["model1_result"]
+                                st.write(f"**Model:** {model1.get('model_name', 'Unknown')}")
+                                st.write(f"**Category:** {model1.get('document_type', 'Unknown')}")
+                                st.write(f"**Confidence:** {model1.get('confidence', 0):.2f}")
+                                st.write("**Reasoning:**")
+                                st.write(model1.get("reasoning", "No reasoning provided"))
+                            else:
+                                st.write("No Model 1 results available")
+                        
+                        # Model 2 tab
+                        with model_tabs[1]:
+                            if "model2_result" in result:
+                                model2 = result["model2_result"]
+                                st.write(f"**Model:** {model2.get('model_name', 'Unknown')}")
+                                
+                                # Show independent assessment if available
+                                if "independent_assessment" in model2:
+                                    independent = model2["independent_assessment"]
+                                    st.write("#### Independent Assessment (before seeing Model 1's results)")
+                                    st.write(f"**Category:** {independent.get('document_type', 'Unknown')}")
+                                    st.write(f"**Confidence:** {independent.get('confidence', 0):.2f}")
+                                    st.write("**Independent Reasoning:**")
+                                    st.write(independent.get("reasoning", "No reasoning provided"))
+                                    
+                                    st.write("#### Review Assessment (after seeing Model 1's results)")
+                                
+                                st.write(f"**Category:** {model2.get('document_type', 'Unknown')}")
+                                st.write(f"**Confidence:** {model2.get('confidence', 0):.2f}")
+                                
+                                if "review_assessment" in model2:
+                                    review = model2["review_assessment"]
+                                    st.write(f"**Agreement Level:** {review.get('agreement_level', 'Unknown')}")
+                                    st.write("**Assessment:**")
+                                    st.write(review.get("assessment_reasoning", "No assessment provided"))
+                                
+                                st.write("**Reasoning:**")
+                                st.write(model2.get("reasoning", "No reasoning provided"))
+                                
+                                # Show confidence adjustment factors if available
+                                if "confidence_adjustment_factors" in model2:
+                                    factors = model2["confidence_adjustment_factors"]
+                                    st.write("#### Confidence Adjustment Factors:")
+                                    for factor, value in factors.items():
+                                        st.write(f"- {factor.replace('_', ' ').title()}: {value:.2f}")
+                            else:
+                                st.write("No Model 2 results available")
+                        
+                        # Model 3 tab
+                        with model_tabs[2]:
+                            if "model3_result" in result:
+                                model3 = result["model3_result"]
+                                st.write(f"**Model:** {model3.get('model_name', 'Unknown')}")
+                                st.write(f"**Category:** {model3.get('document_type', 'Unknown')}")
+                                st.write(f"**Confidence:** {model3.get('confidence', 0):.2f}")
+                                
+                                if "arbitration_assessment" in model3:
+                                    arb = model3["arbitration_assessment"]
+                                    st.write("#### Arbitration Assessment:")
+                                    st.write("**Model 1 Assessment:**")
+                                    st.write(arb.get("model1_assessment", "No assessment provided"))
+                                    st.write("**Model 2 Assessment:**")
+                                    st.write(arb.get("model2_assessment", "No assessment provided"))
+                                    st.write("**Arbitration Decision:**")
+                                    st.write(arb.get("arbitration_reasoning", "No reasoning provided"))
+                                
+                                st.write("**Reasoning:**")
+                                st.write(model3.get("reasoning", "No reasoning provided"))
+                            else:
+                                st.write("No arbitration was needed")
+                    
+                    # Parallel Consensus Details
+                    elif "model_results" in result:
+                        st.write("### Parallel Consensus Details")
+                        
+                        if "consensus_info" in result:
+                            consensus = result["consensus_info"]
+                            st.write(f"**Agreement Level:** {consensus.get('agreement_level', 'Unknown')}")
+                            st.write(f"**Models in Agreement:** {consensus.get('models_in_agreement', 0)}")
+                            st.write(f"**Total Models:** {consensus.get('total_models', 0)}")
+                        
+                        # Display individual model results
+                        for i, model_result in enumerate(result["model_results"]):
+                            with st.expander(f"Model {i+1}: {model_result.get('model_name', 'Unknown')}", expanded=False):
+                                st.write(f"**Category:** {model_result.get('document_type', 'Unknown')}")
+                                st.write(f"**Confidence:** {model_result.get('confidence', 0):.2f}")
+                                st.write("**Reasoning:**")
+                                st.write(model_result.get("reasoning", "No reasoning provided"))
+                    
+                    # Standard categorization details
+                    else:
+                        st.write("### Categorization Details")
+                        
+                        # Display confidence breakdown if available
+                        if "multi_factor_confidence" in result:
+                            st.write("#### Confidence Breakdown")
+                            confidence_factors = result["multi_factor_confidence"]
+                            
+                            # Create a DataFrame for the confidence factors
+                            factors_data = []
+                            for factor, value in confidence_factors.items():
+                                if factor != "overall":
+                                    factors_data.append({
+                                        "Factor": factor.replace("_", " ").title(),
+                                        "Value": value
+                                    })
+                            
+                            factors_df = pd.DataFrame(factors_data)
+                            st.dataframe(factors_df, use_container_width=True)
+                        
+                        # Display reasoning
+                        st.write("#### Reasoning")
+                        st.write(result.get("reasoning", "No reasoning provided"))
         else:
             st.info("No categorization results available.")
-
-def display_detailed_result(result):
-    """
-    Display detailed categorization result for a single file.
-    """
-    st.markdown(f"# {result['file_name']} - {result['document_type']}")
     
-    # Display overall confidence
-    confidence = result.get("calibrated_confidence", result.get("confidence", 0.0))
-    confidence_color = "green" if confidence >= 0.8 else "orange" if confidence >= 0.6 else "red"
-    st.markdown(f"## Overall Confidence: <span style='color:{confidence_color}'>{'High' if confidence >= 0.8 else 'Medium' if confidence >= 0.6 else 'Low'} ({confidence:.2f})</span>", unsafe_allow_html=True)
-    
-    # Display sequential consensus details if available
-    if "sequential_consensus" in result:
-        st.markdown("## Sequential Consensus Details")
-        
-        agreement_level = result["sequential_consensus"].get("agreement_level", "Unknown")
-        agreement_color = "green" if agreement_level == "Full Agreement" else "orange" if agreement_level == "Partial Agreement" else "red"
-        st.markdown(f"### Agreement Level: <span style='color:{agreement_color}'>{agreement_level}</span>", unsafe_allow_html=True)
-        
-        # Create tabs for each model
-        model_tabs = st.tabs(["Model 1 (Initial)", "Model 2 (Review)", "Model 3 (Arbitration)"])
-        
-        # Model 1 tab
-        with model_tabs[0]:
-            if "model1_result" in result:
-                model1 = result["model1_result"]
-                st.markdown(f"### Model: {model1.get('model_name', 'Unknown')}")
-                st.markdown(f"### Category: {model1.get('document_type', 'Unknown')}")
-                st.markdown(f"### Confidence: {model1.get('confidence', 0.0):.2f}")
-
-                st.markdown("### Reasoning:")
-                st.markdown(model1.get("reasoning", "No reasoning provided"))
-        
-        # Model 2 tab
-        with model_tabs[1]:
-            if "model2_result" in result:
-                model2_details = result["model2_result"]
-
-                # Check for and display Model 2's independent initial assessment
-                if "independent_assessment" in model2_details and isinstance(model2_details["independent_assessment"], dict):
-                    independent_assessment = model2_details["independent_assessment"]
-                    st.markdown("#### Model 2: Independent Initial Assessment")
-                    st.markdown(f"Independent Category: {independent_assessment.get('document_type', 'N/A')}")
-                    st.markdown(f"Independent Confidence: {independent_assessment.get('confidence', 0.0):.2f}")
-                    st.markdown("Independent Reasoning:")
-                    st.markdown(independent_assessment.get('reasoning', 'No reasoning provided'))
-                    st.markdown("---") # Visual separator
-                    st.markdown("#### Model 2: Final Review Assessment (after seeing Model 1)") # Title for the final review part
-                else:
-                    # If no independent assessment, still show a title for consistency or fallback
-                    st.markdown("#### Model 2: Review Assessment")
-
-                # Display Model 2's final (potentially reviewed) assessment
-                st.markdown(f"### Model: {model2_details.get('model_name', 'Unknown')}")
-                st.markdown(f"### Category: {model2_details.get('document_type', 'Unknown')}")
-                st.markdown(f"### Confidence: {model2_details.get('confidence', 0.0):.2f}")
-
-                st.markdown("### Review Assessment Details:") # Changed title for clarity
-                if "review_assessment" in model2_details:
-                    st.markdown(f"**Agreement Level:** {model2_details['review_assessment'].get('agreement_level', 'Unknown')}")
-                    st.markdown(f"**Assessment Reasoning:** {model2_details['review_assessment'].get('assessment_reasoning', 'No assessment provided')}")
-
-                st.markdown("### Confidence Adjustment Factors:")
-                if "confidence_adjustment_factors" in model2_details:
-                    factors = model2_details["confidence_adjustment_factors"]
-                    st.markdown(f"* Agreement Bonus: {factors.get('agreement_bonus', 0.0):.2f}")
-                    st.markdown(f"* Disagreement Penalty: {factors.get('disagreement_penalty', 0.0):.2f}")
-                    st.markdown(f"* Reasoning Quality: {factors.get('reasoning_quality', 0.0):.2f}")
-
-                st.markdown("### Final Reasoning:") # Changed title for clarity
-                st.markdown(model2_details.get("reasoning", "No reasoning provided"))
-        
-        # Model 3 tab
-        with model_tabs[2]:
-            if "model3_result" in result:
-                model3 = result["model3_result"]
-                st.markdown(f"### Model: {model3.get('model_name', 'Unknown')}")
-                st.markdown(f"### Category: {model3.get('document_type', 'Unknown')}")
-                st.markdown(f"### Confidence: {model3.get('confidence', 0.0):.2f}")
-
-                if "arbitration_assessment" in model3:
-                    st.markdown("### Arbitration Assessment:")
-                    st.markdown(f"#### Model 1 Assessment: {model3['arbitration_assessment'].get('model1_assessment', 'No assessment provided')}")
-                    st.markdown(f"#### Model 2 Assessment: {model3['arbitration_assessment'].get('model2_assessment', 'No assessment provided')}")
-                    st.markdown(f"#### Arbitration Reasoning: {model3['arbitration_assessment'].get('arbitration_reasoning', 'No reasoning provided')}")
-
-                st.markdown("### Reasoning:")
-                st.markdown(model3.get("reasoning", "No reasoning provided"))
-            else:
-                st.markdown("### No arbitration was needed")
-                st.markdown("Model 3 was not used because there was sufficient agreement between Models 1 and 2.")
-    
-    # Display parallel consensus details if available
-    elif "model_results" in result:
-        st.markdown("## Parallel Consensus Details")
-
-        # Create tabs for each model
-        model_names = [model.get("model_name", f"Model {i+1}") for i, model in enumerate(result["model_results"])]
-        model_tabs = st.tabs(model_names)
-
-        for i, (tab, model_result) in enumerate(zip(model_tabs, result["model_results"])):
-            with tab:
-                st.markdown(f"### Model: {model_result.get('model_name', 'Unknown')}")
-                st.markdown(f"### Category: {model_result.get('document_type', 'Unknown')}")
-                st.markdown(f"### Confidence: {model_result.get('confidence', 0.0):.2f}")
-
-                st.markdown("### Reasoning:")
-                st.markdown(model_result.get("reasoning", "No reasoning provided"))
-    
-    # Standard display for single model results
-    else:
-        # Display confidence breakdown
-        st.markdown("### Confidence Breakdown")
-
-        multi_factor_confidence = result.get("multi_factor_confidence", {})
-        if multi_factor_confidence:
-            factors = [
-                {"factor": "AI Model", "value": multi_factor_confidence.get("ai_reported", 0.0)},
-                {"factor": "Response Quality", "value": multi_factor_confidence.get("response_quality", 0.0)},
-                {"factor": "Category Specificity", "value": multi_factor_confidence.get("category_specificity", 0.0)},
-                {"factor": "Reasoning Quality", "value": multi_factor_confidence.get("reasoning_quality", 0.0)},
-                {"factor": "Document Features Match", "value": multi_factor_confidence.get("document_features_match", 0.0)}
-            ]
-
-            for factor in factors:
-                factor_value = factor["value"]
-                factor_color = "green" if factor_value >= 0.8 else "orange" if factor_value >= 0.6 else "red"
-                st.markdown(f"{factor['factor']}: <span style='color:{factor_color}'>{factor_value:.2f}</span>", unsafe_allow_html=True)
-                # Create a progress bar
-                st.progress(factor_value)
-        
-        # Display two-stage information if available
-        if result.get("first_stage_type"):
-            st.markdown("### Two-Stage Analysis")
-            st.markdown(f"**First Stage Category:** {result['first_stage_type']}")
-            st.markdown(f"**First Stage Confidence:** {result.get('first_stage_confidence', 0.0):.2f}")
-            st.markdown("**Second Stage Analysis:** Performed due to low initial confidence")
-    
-    # Common display elements for all result types
-    st.markdown("### Reasoning")
-    st.markdown(result.get("reasoning", "No reasoning provided"))
-    
-    # Display document features in a separate section
-    if "document_features" in result:
-        st.markdown("### Document Features")
-        features = result["document_features"]
-        for key, value in features.items():
-            st.markdown(f"**{key}:** {value}")
+    # Display errors if any
+    if st.session_state.document_categorization["errors"]:
+        st.write("## Errors")
+        for error in st.session_state.document_categorization["errors"]:
+            st.error(f"Error processing {error['file_name']}: {error['error']}")
