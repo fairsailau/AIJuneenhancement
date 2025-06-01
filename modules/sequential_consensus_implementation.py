@@ -7,6 +7,8 @@ import os
 import datetime
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
+import uuid
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -23,13 +25,14 @@ def categorize_document_with_sequential_consensus(
     """
     Perform document categorization using sequential consensus approach:
     1. Model 1 performs initial categorization
-    2. Model 2 reviews Model 1's results
-    3. Model 3 arbitrates if there's significant disagreement
+    2. Model 2 performs independent categorization without seeing Model 1's results
+    3. Model 2 reviews both results only after forming its own opinion
+    4. Model 3 arbitrates if there's significant disagreement
     
     Args:
         file_id: Box file ID
         model1: AI model for initial categorization
-        model2: AI model for reviewing Model 1's results
+        model2: AI model for independent assessment and review
         model3: AI model for arbitration (used only when needed)
         document_types_with_desc: List of document types with descriptions
         disagreement_threshold: Threshold to trigger Model 3 arbitration
@@ -77,9 +80,19 @@ def categorize_document_with_sequential_consensus(
         model1_multi_factor_confidence.get("overall", model1_result["confidence"])
     )
     
-    # Step 2: First get Model 2's independent assessment, then review
-    logger.info(f"Step 2: Independent assessment and review by {model2}")
-    model2_result = two_stage_review_categorization(file_id, model2, model1_result, document_types_with_desc)
+    # Step 2: Completely independent assessment by Model 2 with no knowledge of Model 1's results
+    logger.info(f"Step 2A: Independent assessment by {model2} (no knowledge of Model 1's results)")
+    model2_independent_result = independent_categorization(file_id, model2, document_types_with_desc)
+    
+    # Step 2B: Only after independent assessment, Model 2 reviews both results
+    logger.info(f"Step 2B: Review by {model2} (after independent assessment)")
+    model2_result = review_categorization(
+        file_id, 
+        model2, 
+        model1_result, 
+        model2_independent_result, 
+        document_types_with_desc
+    )
     model2_result["model_name"] = model2
     
     # Calculate agreement level and confidence
@@ -155,7 +168,8 @@ def categorize_document_with_sequential_consensus(
         "document_features": document_features,
         "sequential_consensus": sequential_consensus,
         "model1_result": model1_result,
-        "model2_result": model2_result
+        "model2_result": model2_result,
+        "model2_independent_result": model2_independent_result  # Include the independent assessment
     }
     
     # Include Model 3 result if arbitration was used
@@ -164,23 +178,112 @@ def categorize_document_with_sequential_consensus(
     
     return result
 
-def two_stage_review_categorization(
+def independent_categorization(
     file_id: str, 
     model: str, 
-    initial_result: Dict[str, Any], 
     document_types_with_desc: List[Dict[str, str]]
 ) -> Dict[str, Any]:
     """
-    Two-stage review process:
-    1. First get Model 2's independent assessment
-    2. Then have Model 2 review Model 1's results
+    Have a model categorize a document completely independently.
+    This function is isolated from any other categorization results.
     
-    This approach reduces bias by first getting an independent opinion.
+    Args:
+        file_id: Box file ID
+        model: AI model for categorization
+        document_types_with_desc: List of document types with descriptions
+        
+    Returns:
+        Dictionary with categorization results
+    """
+    access_token = None
+    if hasattr(st.session_state.client, "_oauth"):
+        access_token = st.session_state.client._oauth.access_token
+    elif hasattr(st.session_state.client, "auth") and hasattr(st.session_state.client.auth, "access_token"):
+        access_token = st.session_state.client.auth.access_token
+    if not access_token:
+        raise ValueError("Could not retrieve access token from client")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    valid_categories = [dtype["name"] for dtype in document_types_with_desc]
+    category_options_text = "\n".join([f"- {dtype['name']}: {dtype['description']}" for dtype in document_types_with_desc])
+    
+    # Generate a unique session ID to ensure this is a completely fresh context
+    session_id = str(uuid.uuid4())
+    
+    # Create a prompt that emphasizes independent judgment
+    prompt = (
+        f"Session ID: {session_id}\n\n"
+        f"You are an expert document analyst with extensive experience in document classification. "
+        f"Please categorize this document into one of the following categories based SOLELY on your own judgment:\n\n"
+        f"Available categories:\n{category_options_text}\n\n"
+        f"Important: Form your own independent opinion without any external influence. "
+        f"Analyze the document thoroughly and provide your honest assessment.\n\n"
+        f"Respond in the following format:\n"
+        f"Category: [your selected category name]\n"
+        f"Confidence: [your confidence score between 0.0 and 1.0]\n"
+        f"Reasoning: [Your detailed reasoning for the categorization]"
+    )
+
+    logger.info(f"Box AI Independent Categorization Request for file {file_id} (model: {model}, session: {session_id}):\n{prompt}")
+
+    api_url = "https://api.box.com/2.0/ai/ask"
+    request_body = {
+        "mode": "single_item_qa",
+        "prompt": prompt,
+        "items": [{"type": "file", "id": file_id}],
+        "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
+    }
+
+    try:
+        logger.info(f"Making Box AI independent categorization call for file {file_id} with model {model}")
+        response = requests.post(api_url, headers=headers, json=request_body, timeout=180)
+        response.raise_for_status()
+        response_data = response.json()
+        logger.info(f"Box AI independent categorization response for {file_id}: {json.dumps(response_data)}")
+
+        if "answer" in response_data and response_data["answer"]:
+            original_response = response_data["answer"]
+            parsed_result = parse_independent_response(original_response, valid_categories)
+            parsed_result["session_id"] = session_id
+            return parsed_result
+        else:
+            logger.warning(f"No answer field or empty answer in Box AI response for file {file_id}. Response: {response_data}")
+            return {
+                "document_type": "Unknown",
+                "confidence": 0.5,
+                "reasoning": "Model did not provide a valid response.",
+                "original_response": str(response_data),
+                "session_id": session_id
+            }
+    except Exception as e:
+        logger.error(f"Error during Box AI call for file {file_id}: {str(e)}")
+        return {
+            "document_type": "Unknown",
+            "confidence": 0.5,
+            "reasoning": f"Error during categorization: {str(e)}",
+            "original_response": str(e),
+            "session_id": session_id
+        }
+
+def review_categorization(
+    file_id: str, 
+    model: str, 
+    model1_result: Dict[str, Any],
+    model2_independent_result: Dict[str, Any],
+    document_types_with_desc: List[Dict[str, str]]
+) -> Dict[str, Any]:
+    """
+    Have Model 2 review both Model 1's results and its own independent assessment.
     
     Args:
         file_id: Box file ID
         model: AI model for review
-        initial_result: Result from the initial categorization
+        model1_result: Result from Model 1's categorization
+        model2_independent_result: Result from Model 2's independent assessment
         document_types_with_desc: List of document types with descriptions
         
     Returns:
@@ -202,84 +305,64 @@ def two_stage_review_categorization(
     valid_categories = [dtype["name"] for dtype in document_types_with_desc]
     category_options_text = "\n".join([f"- {dtype['name']}: {dtype['description']}" for dtype in document_types_with_desc])
     
-    # STAGE 1: Independent assessment
-    independent_prompt = (
-        f"You are an expert document reviewer. Please categorize this document into one of the following categories:\n\n"
+    # Extract information from results
+    model1_category = model1_result["document_type"]
+    model1_confidence = model1_result["confidence"]
+    model1_reasoning = model1_result.get("reasoning", "No reasoning provided")
+    model1_name = model1_result.get("model_name", "Model 1")
+    
+    independent_category = model2_independent_result["document_type"]
+    independent_confidence = model2_independent_result["confidence"]
+    independent_reasoning = model2_independent_result["reasoning"]
+    independent_session_id = model2_independent_result.get("session_id", "unknown")
+    
+    # Generate a unique review session ID
+    review_session_id = str(uuid.uuid4())
+    
+    # Create a prompt that emphasizes critical comparison
+    review_prompt = (
+        f"Review Session ID: {review_session_id}\n\n"
+        f"You are an expert document reviewer tasked with evaluating document categorization results. "
+        f"You have two categorizations of the same document to compare:\n\n"
+        
+        f"1. YOUR OWN INDEPENDENT ASSESSMENT (Session ID: {independent_session_id}):\n"
+        f"Category: {independent_category}\n"
+        f"Confidence: {independent_confidence:.2f}\n"
+        f"Your reasoning: {independent_reasoning}\n\n"
+        
+        f"2. ANOTHER MODEL'S ASSESSMENT ({model1_name}):\n"
+        f"Category: {model1_category}\n"
+        f"Confidence: {model1_confidence:.2f}\n"
+        f"Their reasoning: {model1_reasoning}\n\n"
+        
+        f"Please examine the document again and critically evaluate both assessments. "
+        f"Your task is to provide a final categorization based on the document's content, "
+        f"not simply agreeing with either previous assessment.\n\n"
+        
         f"Available categories:\n{category_options_text}\n\n"
+        
         f"Respond in the following format:\n"
-        f"Category: [your selected category name]\n"
-        f"Confidence: [your confidence score between 0.0 and 1.0]\n"
-        f"Reasoning: [Your detailed reasoning for the categorization]"
+        f"Category: [your final category selection]\n"
+        f"Confidence: [your final confidence score between 0.0 and 1.0]\n"
+        f"Agreement: [Agree/Partially Agree/Disagree] with the other model's categorization\n"
+        f"Assessment: [Your critical assessment of the other model's categorization and reasoning]\n"
+        f"Reasoning: [Your detailed reasoning for your final categorization]"
     )
 
-    logger.info(f"Box AI Independent Assessment Request for file {file_id} (model: {model}):\n{independent_prompt}")
+    logger.info(f"Box AI Review Request for file {file_id} (model: {model}, review session: {review_session_id}):\n{review_prompt}")
+
+    # Add a small delay to ensure API context separation
+    time.sleep(1)
 
     api_url = "https://api.box.com/2.0/ai/ask"
-    independent_request_body = {
+    review_request_body = {
         "mode": "single_item_qa",
-        "prompt": independent_prompt,
+        "prompt": review_prompt,
         "items": [{"type": "file", "id": file_id}],
         "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
     }
 
     try:
-        logger.info(f"Making Box AI independent assessment call for file {file_id} with model {model}")
-        independent_response = requests.post(api_url, headers=headers, json=independent_request_body, timeout=180)
-        independent_response.raise_for_status()
-        independent_data = independent_response.json()
-        logger.info(f"Box AI independent assessment response for {file_id}: {json.dumps(independent_data)}")
-
-        # Parse independent assessment
-        independent_result = {}
-        if "answer" in independent_data and independent_data["answer"]:
-            independent_answer = independent_data["answer"]
-            independent_result = parse_independent_response(independent_answer, valid_categories)
-        else:
-            logger.warning(f"No answer field or empty answer in Box AI independent assessment for file {file_id}")
-            independent_result = {
-                "document_type": "Unknown",
-                "confidence": 0.5,
-                "reasoning": "Independent assessment failed to provide a response."
-            }
-        
-        # STAGE 2: Review with knowledge of Model 1's results
-        initial_category = initial_result["document_type"]
-        initial_confidence = initial_result["confidence"]
-        initial_reasoning = initial_result.get("reasoning", "No reasoning provided")
-        
-        independent_category = independent_result["document_type"]
-        independent_confidence = independent_result["confidence"]
-        independent_reasoning = independent_result["reasoning"]
-        
-        review_prompt = (
-            f"You are an expert document reviewer. You have been asked to review a document categorization.\n\n"
-            f"First, you independently categorized this document as:\n"
-            f"Category: {independent_category}\n"
-            f"Confidence: {independent_confidence:.2f}\n"
-            f"Your reasoning: {independent_reasoning}\n\n"
-            f"Another AI model categorized the same document as:\n"
-            f"Category: {initial_category}\n"
-            f"Confidence: {initial_confidence:.2f}\n"
-            f"Their reasoning: {initial_reasoning}\n\n"
-            f"Please compare these two assessments and provide your final categorization.\n\n"
-            f"Available categories:\n{category_options_text}\n\n"
-            f"Respond in the following format:\n"
-            f"Category: [your final category selection]\n"
-            f"Confidence: [your final confidence score between 0.0 and 1.0]\n"
-            f"Agreement: [Agree/Partially Agree/Disagree] with the other model's categorization\n"
-            f"Assessment: [Your assessment of the other model's categorization and reasoning]\n"
-            f"Reasoning: [Your detailed reasoning for your final categorization]"
-        )
-
-        logger.info(f"Box AI Review Request for file {file_id} (model: {model}):\n{review_prompt}")
-
-        review_request_body = {
-            "mode": "single_item_qa",
-            "prompt": review_prompt,
-            "items": [{"type": "file", "id": file_id}],
-            "ai_agent": {"type": "ai_agent_ask", "basic_text": {"model": model, "mode": "default"}}
-        }
-
         logger.info(f"Making Box AI review call for file {file_id} with model {model}")
         review_response = requests.post(api_url, headers=headers, json=review_request_body, timeout=180)
         review_response.raise_for_status()
@@ -288,25 +371,33 @@ def two_stage_review_categorization(
 
         if "answer" in review_data and review_data["answer"]:
             original_response = review_data["answer"]
-            parsed_result = parse_review_response(original_response, valid_categories, initial_result)
+            parsed_result = parse_review_response(original_response, valid_categories, model1_result)
             
-            # Add independent assessment to result
-            parsed_result["independent_assessment"] = independent_result
+            # Add independent assessment and session info to result
+            parsed_result["independent_assessment"] = model2_independent_result
+            parsed_result["review_session_id"] = review_session_id
             
             # Calculate confidence adjustment factors
             confidence_adjustment_factors = {
                 "agreement_bonus": 0.0,
                 "disagreement_penalty": 0.0,
-                "reasoning_quality": 0.0
+                "reasoning_quality": 0.0,
+                "independent_consistency": 0.0
             }
             
-            # Apply adjustments based on agreement level
+            # Apply adjustments based on agreement level with Model 1
             if parsed_result["review_assessment"]["agreement_level"] == "Agree":
                 confidence_adjustment_factors["agreement_bonus"] = 0.05
             elif parsed_result["review_assessment"]["agreement_level"] == "Partially Agree":
                 confidence_adjustment_factors["agreement_bonus"] = 0.02
             else:  # Disagree
                 confidence_adjustment_factors["disagreement_penalty"] = -0.05
+            
+            # Apply adjustments based on consistency with independent assessment
+            if parsed_result["document_type"] == independent_category:
+                confidence_adjustment_factors["independent_consistency"] = 0.05
+            else:
+                confidence_adjustment_factors["independent_consistency"] = -0.03
             
             # Adjust based on reasoning quality assessment
             reasoning_assessment = parsed_result["review_assessment"]["assessment_reasoning"].lower()
@@ -321,11 +412,12 @@ def two_stage_review_categorization(
         else:
             logger.warning(f"No answer field or empty answer in Box AI review response for file {file_id}. Response: {review_data}")
             return {
-                "document_type": independent_result["document_type"],  # Use independent assessment as fallback
-                "confidence": independent_result["confidence"] * 0.9,  # Slightly reduce confidence due to review failure
-                "reasoning": "Review model did not provide a valid response. Using independent assessment.",
+                "document_type": independent_category,  # Use independent assessment as fallback
+                "confidence": independent_confidence * 0.9,  # Slightly reduce confidence due to review failure
+                "reasoning": "Review failed. Using independent assessment as fallback.",
                 "original_response": str(review_data),
-                "independent_assessment": independent_result,
+                "independent_assessment": model2_independent_result,
+                "review_session_id": review_session_id,
                 "review_assessment": {
                     "agreement_level": "Unknown",
                     "assessment_reasoning": "Review failed"
@@ -334,10 +426,12 @@ def two_stage_review_categorization(
     except Exception as e:
         logger.error(f"Error during Box AI review call for file {file_id}: {str(e)}")
         return {
-            "document_type": initial_result["document_type"],
-            "confidence": initial_result["confidence"] * 0.9,  # Slightly reduce confidence due to review failure
-            "reasoning": f"Error during review: {str(e)}. Using initial categorization.",
+            "document_type": independent_category,  # Use independent assessment as fallback
+            "confidence": independent_confidence * 0.9,  # Slightly reduce confidence due to review failure
+            "reasoning": f"Error during review: {str(e)}. Using independent assessment as fallback.",
             "original_response": str(e),
+            "independent_assessment": model2_independent_result,
+            "review_session_id": review_session_id,
             "review_assessment": {
                 "agreement_level": "Unknown",
                 "assessment_reasoning": f"Review error: {str(e)}"
@@ -564,10 +658,12 @@ def arbitrate_categorization(
     model1_category = model1_result["document_type"]
     model1_confidence = model1_result["confidence"]
     model1_reasoning = model1_result.get("reasoning", "No reasoning provided")
+    model1_name = model1_result.get("model_name", "Model 1")
     
     model2_category = model2_result["document_type"]
     model2_confidence = model2_result["confidence"]
     model2_reasoning = model2_result.get("reasoning", "No reasoning provided")
+    model2_name = model2_result.get("model_name", "Model 2")
     
     # Include independent assessment if available
     independent_assessment_text = ""
@@ -583,23 +679,36 @@ def arbitrate_categorization(
             f"Reasoning: {independent_reasoning}\n\n"
         )
     
+    # Generate a unique arbitration session ID
+    arbitration_session_id = str(uuid.uuid4())
+    
     prompt = (
+        f"Arbitration Session ID: {arbitration_session_id}\n\n"
         f"You are an expert document arbitrator. Two AI models have categorized the same document with different results:\n\n"
-        f"MODEL 1 CATEGORIZATION:\n"
+        
+        f"MODEL 1 ({model1_name}) CATEGORIZATION:\n"
         f"Category: {model1_category}\n"
         f"Confidence: {model1_confidence:.2f}\n"
         f"Reasoning: {model1_reasoning}\n\n"
-        f"MODEL 2 CATEGORIZATION:\n"
+        
+        f"MODEL 2 ({model2_name}) CATEGORIZATION:\n"
         f"{independent_assessment_text}"
         f"Category: {model2_category}\n"
         f"Confidence: {model2_confidence:.2f}\n"
         f"Reasoning: {model2_reasoning}\n\n"
-        f"Please examine the document yourself and arbitrate between these conflicting categorizations. You should:\n"
+        
+        f"Please examine the document yourself and arbitrate between these conflicting categorizations. "
+        f"Your task is to provide an independent, unbiased assessment based on the document's content, "
+        f"not simply choosing one of the previous assessments.\n\n"
+        
+        f"You should:\n"
         f"1. Determine which model's categorization is more accurate (or provide your own if both are incorrect)\n"
         f"2. Provide your own confidence score\n"
         f"3. Assess the quality of each model's reasoning\n"
         f"4. Provide your own detailed reasoning\n\n"
+        
         f"Available categories:\n{category_options_text}\n\n"
+        
         f"Respond in the following format:\n"
         f"Category: [your selected category name]\n"
         f"Confidence: [your confidence score between 0.0 and 1.0]\n"
@@ -609,7 +718,10 @@ def arbitrate_categorization(
         f"Reasoning: [Your detailed reasoning for the final categorization]"
     )
 
-    logger.info(f"Box AI Arbitration Request for file {file_id} (model: {model}):\n{prompt}")
+    logger.info(f"Box AI Arbitration Request for file {file_id} (model: {model}, arbitration session: {arbitration_session_id}):\n{prompt}")
+
+    # Add a small delay to ensure API context separation
+    time.sleep(1)
 
     api_url = "https://api.box.com/2.0/ai/ask"
     request_body = {
@@ -629,6 +741,7 @@ def arbitrate_categorization(
         if "answer" in response_data and response_data["answer"]:
             original_response = response_data["answer"]
             parsed_result = parse_arbitration_response(original_response, valid_categories, model1_result, model2_result)
+            parsed_result["arbitration_session_id"] = arbitration_session_id
             
             # Calculate confidence factors based on arbitration
             confidence_factors = {
@@ -671,6 +784,7 @@ def arbitrate_categorization(
                 "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
                 "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
                 "original_response": str(response_data),
+                "arbitration_session_id": arbitration_session_id,
                 "arbitration_assessment": {
                     "model1_assessment": "Arbitration failed",
                     "model2_assessment": "Arbitration failed",
@@ -692,6 +806,7 @@ def arbitrate_categorization(
             "confidence": fallback_result["confidence"] * 0.9,  # Slightly reduce confidence due to arbitration failure
             "reasoning": fallback_message + "\n\nOriginal reasoning: " + fallback_result.get("reasoning", ""),
             "original_response": str(e),
+            "arbitration_session_id": arbitration_session_id,
             "arbitration_assessment": {
                 "model1_assessment": "Arbitration error",
                 "model2_assessment": "Arbitration error",
@@ -853,6 +968,12 @@ def calculate_agreement_confidence(model1_result: Dict[str, Any], model2_result:
     # Check review assessment
     review_agreement = model2_result.get("review_assessment", {}).get("agreement_level", "Unknown")
     
+    # Check consistency with independent assessment
+    independent_consistency = False
+    if "independent_assessment" in model2_result:
+        independent_category = model2_result["independent_assessment"]["document_type"]
+        independent_consistency = model2_result["document_type"] == independent_category
+    
     # Determine agreement level
     if categories_match and review_agreement == "Agree" and confidence_diff < 0.1:
         agreement_level = "Full Agreement"
@@ -864,40 +985,8 @@ def calculate_agreement_confidence(model1_result: Dict[str, Any], model2_result:
         agreement_level = "Disagreement"
         confidence_adjustment = -0.05  # Penalty for disagreement
     
+    # Additional adjustment for independent consistency
+    if independent_consistency:
+        confidence_adjustment += 0.03
+    
     return agreement_level, confidence_adjustment
-
-def calculate_arbitration_confidence(
-    model1_result: Dict[str, Any], 
-    model2_result: Dict[str, Any],
-    model3_result: Dict[str, Any]
-) -> float:
-    """
-    Calculate confidence adjustment based on arbitration results.
-    
-    Args:
-        model1_result: Result from the initial categorization
-        model2_result: Result from the review
-        model3_result: Result from the arbitration
-        
-    Returns:
-        Confidence adjustment factor
-    """
-    # Check if arbitration agrees with either model
-    agrees_with_model1 = model3_result["document_type"] == model1_result["document_type"]
-    agrees_with_model2 = model3_result["document_type"] == model2_result["document_type"]
-    
-    # Base confidence is arbitration model's confidence
-    base_confidence = model3_result["confidence"]
-    
-    # Apply adjustments
-    if agrees_with_model1 and agrees_with_model2:
-        # All models agree - high confidence
-        adjustment = 0.05
-    elif agrees_with_model1 or agrees_with_model2:
-        # Arbitration agrees with one model - moderate confidence
-        adjustment = 0.02
-    else:
-        # Arbitration disagrees with both models - lower confidence
-        adjustment = -0.03
-    
-    return adjustment
