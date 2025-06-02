@@ -463,6 +463,23 @@ def document_categorization():
                 st.session_state.document_categorization["is_categorized"] = True
                 progress_text.success(f"Categorization complete! Processed {len(files_to_process)} files with {len(st.session_state.document_categorization['errors'])} errors.")
                 
+                if files_to_process: # Ensure we only update if files were actually processed
+                    # Ensure files_to_process contains dictionaries with 'id', 'name', and 'type'
+                    # This is already the case based on how files_to_process is constructed for folder mode:
+                    # files_to_process = [
+                    #     {"id": item.id, "name": item.name, "type": item.type}
+                    #     for item in items if item.type == "file"
+                    # ]
+                    # And for selected files mode, it's also structured similarly:
+                    # files_to_process = [
+                    #     {"id": file["id"], "name": file["name"], "type": file["type"]}
+                    #     for file in st.session_state.selected_files
+                    # ]
+                    # So, files_to_process should be suitable for direct assignment if it was populated.
+
+                    st.session_state.selected_files = files_to_process
+                    logger.info(f"Updated st.session_state.selected_files with {len(files_to_process)} categorized files.")
+
                 # Display results
                 display_categorization_results()
     

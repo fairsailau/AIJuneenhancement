@@ -26,9 +26,13 @@ def metadata_config():
         for file in st.session_state.selected_files:
             file_id = file['id']
             file_name = file['name']
-            document_type = 'Not categorized'
-            if file_id in st.session_state.document_categorization['results']:
-                document_type = st.session_state.document_categorization['results'][file_id]['document_type']
+            document_type = 'Not categorized' # Default
+            cat_results_list = st.session_state.document_categorization.get('results', [])
+            found_result = next((r for r in cat_results_list if r.get('file_id') == file_id), None)
+            if found_result:
+                # Prefer 'document_type', then 'category', then default to 'Not categorized'
+                document_type = found_result.get('document_type') or found_result.get('category', 'Not categorized')
+            # If found_result is None, document_type remains 'Not categorized' as initialized.
             categorization_data.append({'File Name': file_name, 'Document Type': document_type})
         st.table(categorization_data)
     else:
