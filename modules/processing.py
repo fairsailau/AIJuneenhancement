@@ -40,88 +40,36 @@ def get_metadata_template_id(file_id, file_name, template_config):
     # First check if we have document categorization results
     doc_type = None
     if 'document_categorization' in st.session_state and 'results' in st.session_state.document_categorization:
-        if file_id in st.session_state.document_categorization['results']:
-            cat_result = st.session_state.document_categorization['results'][file_id]
-            # The category field might be named 'category' or 'document_type' depending on implementation
-            doc_type = cat_result.get('category') or cat_result.get('document_type')
-            logger.info(f"Found document type for file {file_name}: {doc_type}")
-    
-    # If we have a document type and document-to-template mappings, use that
-    if doc_type and hasattr(st.session_state, 'document_type_to_template'):
-        template_id = st.session_state.document_type_to_template.get(doc_type)
-        if template_id:
-            logger.info(f"Using template for document type {doc_type}: {template_id}")
-            return template_id
-    
-    # Otherwise, use the direct template from metadata_config
-    template_id = template_config.get("template_id")
-    logger.info(f"Using direct template: {template_id}")
-    return template_id
-def get_metadata_template_id(file_id, file_name, template_config):
-    """
-    Determine which metadata template to use for the given file
-    
-    Args:
-        file_id: Box file ID
-        file_name: File name for logging
-        template_config: Configuration containing template selection strategy
-    
-    Returns:
-        template_id: The determined template ID or None if not applicable
-    """
-    # First check if we have document categorization results
-    doc_type = None
-    if 'document_categorization' in st.session_state and 'results' in st.session_state.document_categorization:
-        if file_id in st.session_state.document_categorization['results']:
-            cat_result = st.session_state.document_categorization['results'][file_id]
-            # The category field might be named 'category' or 'document_type' depending on implementation
-            doc_type = cat_result.get('category') or cat_result.get('document_type')
-            logger.info(f"Found document type for file {file_name}: {doc_type}")
-    
-    # If we have a document type and document-to-template mappings, use that
-    if doc_type and hasattr(st.session_state, 'document_type_to_template'):
-        template_id = st.session_state.document_type_to_template.get(doc_type)
-        if template_id:
-            logger.info(f"Using template for document type {doc_type}: {template_id}")
-            return template_id
-    
-    # Otherwise, use the direct template from metadata_config
-    template_id = template_config.get("template_id")
-    logger.info(f"Using direct template: {template_id}")
-    return template_id
+        cat_results_list = st.session_state.document_categorization.get('results', [])
+        # Ensure file_id is compared as string if necessary, assuming file_id parameter is consistently typed
+        cat_result = next((r for r in cat_results_list if str(r.get('file_id')) == str(file_id)), None)
+        if cat_result:
+            doc_type = cat_result.get('document_type') or cat_result.get('category')
+            logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name} ({file_id}), Derived doc_type: {doc_type}") # LOG 1
+    else:
+        logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name} ({file_id}), No categorization results found in session state.") # LOG 2 (if no categorization results at all)
 
-def get_metadata_template_id(file_id, file_name, template_config):
-    """
-    Determine which metadata template to use for the given file
-    
-    Args:
-        file_id: Box file ID
-        file_name: File name for logging
-        template_config: Configuration containing template selection strategy
-    
-    Returns:
-        template_id: The determined template ID or None if not applicable
-    """
-    # First check if we have document categorization results
-    doc_type = None
-    if 'document_categorization' in st.session_state and 'results' in st.session_state.document_categorization:
-        if file_id in st.session_state.document_categorization['results']:
-            cat_result = st.session_state.document_categorization['results'][file_id]
-            # The category field might be named 'category' or 'document_type' depending on implementation
-            doc_type = cat_result.get('category') or cat_result.get('document_type')
-            logger.info(f"Found document type for file {file_name}: {doc_type}")
-    
-    # If we have a document type and document-to-template mappings, use that
     if doc_type and hasattr(st.session_state, 'document_type_to_template'):
-        template_id = st.session_state.document_type_to_template.get(doc_type)
-        if template_id:
-            logger.info(f"Using template for document type {doc_type}: {template_id}")
-            return template_id
-    
-    # Otherwise, use the direct template from metadata_config
-    template_id = template_config.get("template_id")
-    logger.info(f"Using direct template: {template_id}")
-    return template_id
+        logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Attempting to use doc_type_to_template. Content: {st.session_state.document_type_to_template}") # LOG 3
+        template_id_from_mapping = st.session_state.document_type_to_template.get(doc_type)
+        logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Template ID from mapping for doc_type '{doc_type}': {template_id_from_mapping}") # LOG 4
+        if template_id_from_mapping:
+            logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Using mapped template: {template_id_from_mapping}") # LOG 5
+            return template_id_from_mapping
+        else:
+            logger.warning(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Doc_type '{doc_type}' found, but no template mapped in document_type_to_template. Will use direct template.") # LOG 6
+
+    elif doc_type:
+         logger.warning(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Doc_type '{doc_type}' found, but st.session_state.document_type_to_template does not exist or is not an attribute.") # LOG 7
+    else:
+        logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, No doc_type derived. Will use direct template.") # LOG 8
+
+
+    template_id_fallback = template_config.get("template_id")
+    logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Using direct/fallback template: {template_id_fallback}") # LOG 9
+    return template_id_fallback
+# The duplicate function definitions below have been removed.
+# The first definition (with TEMP_LOG statements) is now the sole definition.
 
 def get_fields_for_ai_from_template(scope, template_key):
     """
