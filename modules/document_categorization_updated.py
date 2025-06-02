@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 
 # Import the sequential consensus implementation
-from modules.sequential_consensus_implementation_enhanced import categorize_document_with_sequential_consensus
+from modules.sequential_consensus_implementation import categorize_document_with_sequential_consensus
 from modules.document_categorization_utils import (
     categorize_document,
     extract_document_features,
