@@ -36,6 +36,12 @@ from modules.horizontal_workflow import display_horizontal_workflow
 # Optionally re-add user journey guide if needed later
 # from modules.user_journey_guide import user_journey_guide, display_step_help 
 
+from modules.batch_utils import initialize_batch_process_state, run_batch_processing_iteration
+from modules.document_categorization_updated import batch_process_single_categorization_file
+# Add other stage processors here as they are developed, e.g.:
+# from modules.processing import batch_process_single_extraction_file
+# from modules.direct_metadata_application_v3_fixed import batch_process_single_application_file
+# logging is already imported
 
 # Session timeout configuration
 SESSION_TIMEOUT_MINUTES = 60  # Increased from default
@@ -173,7 +179,30 @@ def initialize_session_state():
         logger.info("Initialized ui_preferences in session state")
 
 # Initialize session state
+initialize_batch_process_state() # Initialize batch state early
 initialize_session_state()
+
+# Define a map for stage-specific processor functions
+# This map will be expanded as other batch stages are implemented
+PROCESSOR_MAP = {
+    "categorization": batch_process_single_categorization_file,
+    # "extraction": batch_process_single_extraction_file, # Example for future
+    # "application": batch_process_single_application_file, # Example for future
+}
+
+bpm = st.session_state.get('batch_process_manager', {}) # Use .get for safety
+if bpm.get('is_active', False):
+    current_stage_name = bpm.get('current_stage')
+    if current_stage_name and current_stage_name in PROCESSOR_MAP:
+        processor_function = PROCESSOR_MAP[current_stage_name]
+        logger.info(f"App.py: Batch active for stage '{current_stage_name}'. Calling run_batch_processing_iteration.")
+        run_batch_processing_iteration(processor_function)
+    elif current_stage_name:
+        logger.error(f"App.py: No processor found for active batch stage: {current_stage_name}. Deactivating batch.")
+        bpm['is_active'] = False # Stop if no processor to avoid infinite reruns
+        # Consider adding st.error("Batch processing error: No processor for stage.")
+    # If current_stage_name is None but is_active is True, it's an inconsistent state.
+    # The run_batch_processing_iteration itself also has checks for is_active.
 
 # Update last activity timestamp
 def update_activity():

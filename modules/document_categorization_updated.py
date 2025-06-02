@@ -20,9 +20,121 @@ from modules.document_categorization_utils import (
     categorize_document_detailed
 )
 
+from modules.batch_utils import start_new_batch, cancel_current_batch # Assuming initialize_batch_process_state is called in app.py
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_config: Dict[str, Any]) -> Dict[str, Any]:
+    # Ensure module-level logger is used, or re-get if preferred for function scope
+    # logger = logging.getLogger(__name__) # Already available at module level
+    file_id = str(file_info['id'])
+    file_name = file_info.get('name', f'File {file_id}')
+    
+    try:
+        logger.info(f"Batch processing categorization for {file_name} (ID: {file_id}) with mode: {stage_config.get('consensus_mode')}")
+
+        result_data = None
+        consensus_mode = stage_config.get('consensus_mode')
+        document_types_with_desc = stage_config.get('document_types_with_desc', [])
+        use_two_stage = stage_config.get('use_two_stage', False) # Simplified for now
+        confidence_threshold = stage_config.get('confidence_threshold', 0.6) # Simplified for now
+        valid_categories = [dtype["name"] for dtype in document_types_with_desc]
+
+
+        if consensus_mode == "Standard":
+            model = stage_config.get('single_model')
+            if not model:
+                raise ValueError("Model not specified for Standard consensus mode in batch processing.")
+            
+            # Note: Two-stage logic simplified here. 
+            # A full implementation would mirror non-batch logic, possibly using categorize_document_detailed.
+            if use_two_stage:
+                 logger.warning(f"Two-stage categorization for Standard mode in batch is simplified. File: {file_name}")
+                 # Example if categorize_document_detailed was directly usable:
+                 # result_data = categorize_document_detailed(file_id, model, document_types_with_desc, confidence_threshold)
+                 # For now, using simple categorization:
+                 result_data = categorize_document(file_id, model, document_types_with_desc)
+            else:
+                result_data = categorize_document(file_id, model, document_types_with_desc)
+            
+            if result_data:
+                document_features = extract_document_features(file_id)
+                multi_factor_confidence = calculate_multi_factor_confidence(
+                    result_data["confidence"], document_features, result_data["document_type"],
+                    result_data.get("reasoning", ""), valid_categories
+                )
+                result_data["multi_factor_confidence"] = multi_factor_confidence
+                result_data["calibrated_confidence"] = apply_confidence_calibration(
+                    result_data["document_type"], multi_factor_confidence.get("overall", result_data["confidence"])
+                )
+
+        elif consensus_mode == "Parallel Consensus":
+            models = stage_config.get('parallel_models')
+            if not models:
+                raise ValueError("Models not specified for Parallel consensus mode in batch processing.")
+            
+            model_results = []
+            for model_name in models:
+                try:
+                    # Note: Two-stage logic simplified here.
+                    if use_two_stage:
+                        logger.warning(f"Two-stage categorization for Parallel mode (model {model_name}) in batch is simplified. File: {file_name}")
+                    # Using simple categorization for now:
+                    model_res = categorize_document(file_id, model_name, document_types_with_desc)
+                    model_res["model_name"] = model_name
+                    model_results.append(model_res)
+                except Exception as e_model:
+                    logger.error(f"Error with model {model_name} for {file_name} in batch parallel: {str(e_model)}")
+            
+            if model_results:
+                result_data = combine_categorization_results(model_results)
+                if result_data: # Ensure combine_categorization_results didn't return None
+                    document_features = extract_document_features(file_id)
+                    multi_factor_confidence = calculate_multi_factor_confidence(
+                        result_data["confidence"], document_features, result_data["document_type"],
+                        result_data.get("reasoning", ""), valid_categories
+                    )
+                    result_data["multi_factor_confidence"] = multi_factor_confidence
+                    result_data["calibrated_confidence"] = apply_confidence_calibration(
+                        result_data["document_type"], multi_factor_confidence.get("overall", result_data["confidence"])
+                    )
+            else:
+                raise Exception("All models failed in parallel consensus for batch.")
+
+        elif consensus_mode == "Sequential Consensus":
+            # Note: Two-stage logic for sequential consensus would need careful integration
+            # with how categorize_document_with_sequential_consensus handles its internal calls.
+            # Assuming for now that two-stage is not directly applied here or handled within.
+            if use_two_stage:
+                logger.warning(f"Two-stage categorization for Sequential mode in batch is not explicitly implemented here and relies on underlying function. File: {file_name}")
+
+            result_data = categorize_document_with_sequential_consensus(
+                file_id,
+                stage_config['model1'],
+                stage_config['model2'],
+                stage_config['model3'],
+                document_types_with_desc,
+                stage_config.get('disagreement_threshold', 0.2)
+            )
+            # Post-processing (like multi-factor confidence) is typically handled within categorize_document_with_sequential_consensus
+
+        else:
+            raise ValueError(f"Unsupported consensus mode for batch processing: {consensus_mode}")
+
+        if result_data is None:
+             raise Exception("Categorization returned no data.")
+
+        result_data['file_id'] = file_id 
+        result_data['file_name'] = file_name
+
+        return {'status': 'success', 'message': f"Categorized {file_name}", 'data': result_data}
+
+    except Exception as e:
+        logger.error(f"Error batch categorizing {file_name} (ID: {file_id}): {e}", exc_info=True)
+        return {'status': 'error', 'message': str(e), 'data': {'file_id': file_id, 'file_name': file_name}}
+
 
 UPDATED_MODEL_LIST = [
     "azure__openai__gpt_4_1_mini", "azure__openai__gpt_4_1", "azure__openai__gpt_4o_mini", "azure__openai__gpt_4o",
@@ -38,6 +150,79 @@ def document_categorization():
     Main function for document categorization tab.
     """
     st.title("Document Categorization")
+
+    # --- Handle Batch Completion ---
+    bpm = st.session_state.get('batch_process_manager', {})
+    if not bpm.get('is_active', False) and \
+       bpm.get('current_stage') == "categorization" and \
+       bpm.get('total_files', 0) > 0 and \
+       len(bpm.get('results', [])) > 0: # Ensure there are results to process
+
+        logger.info("Handling completion of 'categorization' batch.")
+        
+        # Initialize/clear main categorization results list
+        if 'document_categorization' not in st.session_state:
+            st.session_state.document_categorization = {'results': [], 'errors': [], 'is_categorized': False}
+        st.session_state.document_categorization['results'] = []
+        st.session_state.document_categorization['errors'] = [] # Clear previous errors too
+
+        processed_files_for_selected_files = []
+        batch_had_errors = False
+
+        for batch_item_result in bpm.get('results', []):
+            file_id_from_batch = batch_item_result.get('file_id', 'unknown_id')
+            file_name_from_batch = batch_item_result.get('name', 'Unknown File')
+
+            if batch_item_result.get('status') == 'success':
+                if batch_item_result.get('data'):
+                    st.session_state.document_categorization['results'].append(batch_item_result['data'])
+                    processed_files_for_selected_files.append({
+                        'id': batch_item_result['data'].get('file_id', file_id_from_batch), # Use data's file_id if available
+                        'name': batch_item_result['data'].get('file_name', file_name_from_batch), # Use data's file_name
+                        'type': 'file' 
+                    })
+                else:
+                    logger.warning(f"Batch item {file_name_from_batch} was success but no data found.")
+                    st.session_state.document_categorization['errors'].append({
+                        'file_id': file_id_from_batch,
+                        'file_name': file_name_from_batch,
+                        'error': "Successful batch item had no data."
+                    })
+                    batch_had_errors = True
+                    # Still add to processed_files_for_selected_files for consistency if needed
+                    processed_files_for_selected_files.append({'id': file_id_from_batch, 'name': file_name_from_batch, 'type': 'file'})
+            else: # status == 'error'
+                logger.error(f"Error recorded for {file_name_from_batch} in categorization batch: {batch_item_result.get('message')}")
+                st.session_state.document_categorization['errors'].append({
+                    'file_id': file_id_from_batch,
+                    'file_name': file_name_from_batch,
+                    'error': batch_item_result.get('message')
+                })
+                batch_had_errors = True
+                processed_files_for_selected_files.append({'id': file_id_from_batch, 'name': file_name_from_batch, 'type': 'file'})
+
+        if st.session_state.document_categorization['results'] or st.session_state.document_categorization['errors']:
+            st.session_state.document_categorization['is_categorized'] = True
+            if processed_files_for_selected_files:
+                 st.session_state.selected_files = processed_files_for_selected_files
+                 logger.info(f"Updated st.session_state.selected_files with {len(processed_files_for_selected_files)} files from completed batch.")
+
+        if not batch_had_errors and bpm.get('total_files', 0) > 0 : # Only show success if no errors and files were processed
+            st.success(f"Batch categorization completed successfully for {len(st.session_state.document_categorization['results'])} files.")
+        elif batch_had_errors: # Show warning if there were errors
+            st.warning(f"Batch categorization completed with {len(st.session_state.document_categorization['errors'])} errors out of {bpm.get('total_files')} files. Check results summary and detailed view.")
+
+        # Reset batch manager fields for the completed 'categorization' stage
+        bpm['current_stage'] = None 
+        # bpm['files_to_process'] = [] # Keep files_to_process for a moment if user wants to see what was attempted
+        bpm['results'] = [] # Clear results as they've been transferred
+        # bpm['total_files'] = 0 # Keep total_files for reference of last batch size
+        # bpm['current_index'] = 0 # Keep current_index as it shows total processed
+        # bpm['error_count'] = 0 # Keep error / success counts for summary
+        # bpm['successful_count'] = 0
+        logger.info("Cleared 'categorization' batch results from batch_process_manager after handling completion. Other BPM fields retained for review until next batch starts.")
+        # st.rerun() # Consider if a rerun is needed here or if subsequent UI updates are sufficient
+    # --- End Handle Batch Completion ---
     
     # Initialize session state for document categorization
     if "document_categorization" not in st.session_state:
@@ -241,8 +426,108 @@ def document_categorization():
             start_button = st.button("Start Categorization")
         with col2:
             cancel_button = st.button("Cancel Categorization")
+
+        st.markdown("---") # Separator before batch UI
         
-        # Process categorization
+        # Get a reference to the batch manager state for convenience
+        bpm = st.session_state.get('batch_process_manager', {}) # Use .get for safety before full init
+
+        st.subheader("Batch Processing Configuration")
+        # UI for batch parameters - these will write to st.session_state.batch_process_manager when changed by other components or on next run
+        # For this step, we'll just read them if they exist, or use defaults for the start_new_batch call.
+        # Actual input fields for these can be part of a dedicated settings area or the display_batch_controls component later.
+        sub_batch_size_ui = bpm.get('sub_batch_size', 1) 
+        api_call_delay_seconds_ui = bpm.get('api_call_delay_seconds', 0.5)
+        sub_batch_delay_seconds_ui = bpm.get('sub_batch_delay_seconds', 0.1)
+        
+        # Example: Add a "Start Batch Categorization for Folder" button
+        # This button should ideally only appear if folder mode is selected and a folder_id is available.
+        if selection_mode == "Box Folder" and folder_id:
+            if st.button("Start Batch Categorization for Folder Contents", key="start_batch_categorization_button"):
+                try:
+                    # This part re-uses existing logic to get files_to_process from a folder
+                    folder = st.session_state.client.folder(folder_id).get()
+                    items = folder.get_items()
+                    files_for_batch = [
+                        {"id": item.id, "name": item.name, "type": item.type} 
+                        for item in items if item.type == "file"
+                    ]
+                    if not files_for_batch:
+                        st.warning("No files found in the specified folder to batch categorize.")
+                    else:
+                        # Gather stage-specific config
+                        # Ensure all potential variables are defined or have defaults if not in scope for a mode
+                        current_model1 = model1 if consensus_mode == "Sequential Consensus" else None
+                        current_model2 = model2 if consensus_mode == "Sequential Consensus" else None
+                        current_model3 = model3 if consensus_mode == "Sequential Consensus" else None
+                        current_disagreement_threshold = disagreement_threshold if consensus_mode == "Sequential Consensus" else 0.2
+                        current_single_model = model if consensus_mode == "Standard" else None
+                        current_parallel_models = models if consensus_mode == "Parallel Consensus" else None
+                        
+                        stage_config = {
+                            'consensus_mode': consensus_mode, 
+                            'model1': current_model1,
+                            'model2': current_model2,
+                            'model3': current_model3,
+                            'disagreement_threshold': current_disagreement_threshold,
+                            'single_model': current_single_model,
+                            'parallel_models': current_parallel_models,
+                            'document_types_with_desc': st.session_state.document_types,
+                            'use_two_stage': use_two_stage, 
+                            'confidence_threshold': confidence_threshold 
+                        }
+                        
+                        start_new_batch(
+                            stage_name="categorization",
+                            files=files_for_batch,
+                            stage_specific_config=stage_config,
+                            sub_batch_size=sub_batch_size_ui, # Use values from UI/defaults
+                            api_delay=api_call_delay_seconds_ui,
+                            batch_delay=sub_batch_delay_seconds_ui
+                        )
+                        # The st.rerun() in start_new_batch will handle starting the loop via app.py
+                except Exception as e:
+                    st.error(f"Error preparing batch categorization: {e}")
+
+        # Display Batch Progress and Status (Logic for this UI component)
+        if bpm.get('is_active', False) and bpm.get('current_stage') == "categorization":
+            progress_val = bpm['current_index'] / bpm['total_files'] if bpm.get('total_files', 0) > 0 else 0
+            st.progress(progress_val)
+            
+            # More detailed status message
+            processed_in_sub_batch_val = bpm.get('processed_in_sub_batch',0) 
+            sub_batch_size_val = bpm.get('sub_batch_size',1) 
+            current_file_name_display = ""
+            if bpm.get('files_to_process') and bpm.get('current_index', 0) < len(bpm['files_to_process']):
+                 current_file_name_display = bpm['files_to_process'][bpm['current_index']]['name']
+
+
+            status_message = (f"Processing file {bpm.get('current_index', 0)} of {bpm.get('total_files', 0)}: {current_file_name_display}. "
+                              f"(Sub-batch: {processed_in_sub_batch_val}/{sub_batch_size_val}). "
+                              f"Success: {bpm.get('successful_count', 0)}, Errors: {bpm.get('error_count', 0)}.")
+            st.info(status_message)
+
+            if st.button("Cancel Batch Categorization", key="cancel_batch_categorization_button"):
+                cancel_current_batch()
+                st.warning("Batch categorization cancellation requested.")
+                # st.rerun() # cancel_current_batch doesn't rerun, main loop will catch it or next interaction
+
+        # Display Batch Results Summary (Logic for this UI component)
+        if bpm.get('results') and bpm.get('current_stage') == "categorization":
+            st.write("### Batch Categorization Progress:")
+            results_to_display = []
+            for res in bpm['results']:
+                results_to_display.append({
+                    "File Name": res.get('name', 'N/A'), 
+                    "Status": res.get('status', 'N/A'), 
+                    "Message": res.get('message', '')
+                })
+            if results_to_display:
+                st.dataframe(results_to_display, use_container_width=True)
+        
+        st.markdown("---") # Separator after batch UI
+
+        # Process categorization (Existing non-batch logic)
         if start_button:
             st.session_state.document_categorization["is_categorized"] = False
             st.session_state.document_categorization["results"] = []
@@ -469,19 +754,19 @@ def document_categorization():
                     # Ensure files_to_process contains dictionaries with 'id', 'name', and 'type'
                     # This is already the case based on how files_to_process is constructed for folder mode:
                     # files_to_process = [
-                    #     {"id": item.id, "name": item.name, "type": item.type}
+                    #     {"id": item.id, "name": item.name, "type": item.type} 
                     #     for item in items if item.type == "file"
                     # ]
                     # And for selected files mode, it's also structured similarly:
                     # files_to_process = [
-                    #     {"id": file["id"], "name": file["name"], "type": file["type"]}
+                    #     {"id": file["id"], "name": file["name"], "type": file["type"]} 
                     #     for file in st.session_state.selected_files
                     # ]
                     # So, files_to_process should be suitable for direct assignment if it was populated.
 
                     st.session_state.selected_files = files_to_process
                     logger.info(f"Updated st.session_state.selected_files with {len(files_to_process)} categorized files.")
-
+                
                 # Display results
                 display_categorization_results()
     
