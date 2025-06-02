@@ -695,10 +695,10 @@ def display_categorization_results():
                     
                     st.write(f"**Overall Confidence:** <span style='color:{confidence_color}'>{confidence_text} ({confidence:.2f})</span>", unsafe_allow_html=True)
                     
-                    # Display confidence breakdown if available
+                    # Display confidence breakdown if available - FIXED: No nested expanders
                     if "multi_factor_confidence" in result:
-                        with st.expander("Confidence Breakdown", expanded=True):
-                            display_confidence_visualization(result["multi_factor_confidence"])
+                        st.write("### Confidence Breakdown")
+                        display_confidence_visualization(result["multi_factor_confidence"])
                     
                     # Sequential Consensus Details
                     if "sequential_consensus" in result:
@@ -753,8 +753,8 @@ def display_categorization_results():
                                 
                                 # Show confidence adjustment factors if available
                                 if "confidence_adjustment_factors" in model2:
-                                    factors = model2["confidence_adjustment_factors"]
                                     st.write("#### Confidence Adjustment Factors:")
+                                    factors = model2["confidence_adjustment_factors"]
                                     for factor, value in factors.items():
                                         st.write(f"- {factor.replace('_', ' ').title()}: {value:.2f}")
                             else:
@@ -795,11 +795,11 @@ def display_categorization_results():
                         
                         # Display individual model results
                         for i, model_result in enumerate(result["model_results"]):
-                            with st.expander(f"Model {i+1}: {model_result.get('model_name', 'Unknown')}", expanded=False):
-                                st.write(f"**Category:** {model_result.get('document_type', 'Unknown')}")
-                                st.write(f"**Confidence:** {model_result.get('confidence', 0):.2f}")
-                                st.write("**Reasoning:**")
-                                st.write(model_result.get("reasoning", "No reasoning provided"))
+                            st.write(f"#### Model {i+1}: {model_result.get('model_name', 'Unknown')}")
+                            st.write(f"**Category:** {model_result.get('document_type', 'Unknown')}")
+                            st.write(f"**Confidence:** {model_result.get('confidence', 0):.2f}")
+                            st.write("**Reasoning:**")
+                            st.write(model_result.get("reasoning", "No reasoning provided"))
                     
                     # Standard categorization details
                     else:
