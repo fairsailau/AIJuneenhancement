@@ -6,6 +6,7 @@ import re
 import os
 import datetime
 import pandas as pd
+import altair as alt
 from typing import Dict, Any, List, Optional, Tuple
 
 # Import the sequential consensus implementation
@@ -304,6 +305,24 @@ def document_categorization():
                             result["file_id"] = file["id"]
                             result["file_name"] = file["name"]
                             
+                            # Calculate multi-factor confidence
+                            document_features = extract_document_features(file["id"])
+                            multi_factor_confidence = calculate_multi_factor_confidence(
+                                result["confidence"],
+                                document_features,
+                                result["document_type"],
+                                result.get("reasoning", ""),
+                                [dtype["name"] for dtype in st.session_state.document_types]
+                            )
+                            result["multi_factor_confidence"] = multi_factor_confidence
+                            
+                            # Apply confidence calibration
+                            calibrated_confidence = apply_confidence_calibration(
+                                result["document_type"],
+                                multi_factor_confidence.get("overall", result["confidence"])
+                            )
+                            result["calibrated_confidence"] = calibrated_confidence
+                            
                             # Add to results
                             st.session_state.document_categorization["results"].append(result)
                             
@@ -358,6 +377,24 @@ def document_categorization():
                                 combined_result["file_name"] = file["name"]
                                 combined_result["model_results"] = model_results
                                 
+                                # Calculate multi-factor confidence
+                                document_features = extract_document_features(file["id"])
+                                multi_factor_confidence = calculate_multi_factor_confidence(
+                                    combined_result["confidence"],
+                                    document_features,
+                                    combined_result["document_type"],
+                                    combined_result.get("reasoning", ""),
+                                    [dtype["name"] for dtype in st.session_state.document_types]
+                                )
+                                combined_result["multi_factor_confidence"] = multi_factor_confidence
+                                
+                                # Apply confidence calibration
+                                calibrated_confidence = apply_confidence_calibration(
+                                    combined_result["document_type"],
+                                    multi_factor_confidence.get("overall", combined_result["confidence"])
+                                )
+                                combined_result["calibrated_confidence"] = calibrated_confidence
+                                
                                 # Add to results
                                 st.session_state.document_categorization["results"].append(combined_result)
                             else:
@@ -391,6 +428,25 @@ def document_categorization():
                             # Add file info to result
                             result["file_id"] = file["id"]
                             result["file_name"] = file["name"]
+                            
+                            # Calculate multi-factor confidence for the final result
+                            if "model1_result" in result:
+                                document_features = extract_document_features(file["id"])
+                                multi_factor_confidence = calculate_multi_factor_confidence(
+                                    result["confidence"],
+                                    document_features,
+                                    result["document_type"],
+                                    result.get("reasoning", ""),
+                                    [dtype["name"] for dtype in st.session_state.document_types]
+                                )
+                                result["multi_factor_confidence"] = multi_factor_confidence
+                                
+                                # Apply confidence calibration
+                                calibrated_confidence = apply_confidence_calibration(
+                                    result["document_type"],
+                                    multi_factor_confidence.get("overall", result["confidence"])
+                                )
+                                result["calibrated_confidence"] = calibrated_confidence
                             
                             # Add to results
                             st.session_state.document_categorization["results"].append(result)
@@ -484,6 +540,77 @@ def document_categorization():
                 st.session_state.document_types_edit = st.session_state.document_types.copy()
                 st.success("Document types reset to default!")
 
+def display_confidence_visualization(confidence_data):
+    """
+    Display a visual representation of confidence factors using Altair charts.
+    
+    Args:
+        confidence_data (dict): Dictionary containing confidence factors
+    """
+    # Define colors for different confidence levels
+    def get_color(value):
+        if value >= 0.8:
+            return "#28a745"  # Green
+        elif value >= 0.6:
+            return "#ffc107"  # Yellow/Orange
+        else:
+            return "#dc3545"  # Red
+    
+    # Prepare data for visualization
+    chart_data = []
+    
+    # Map factor names to display names
+    factor_display_names = {
+        "ai_reported": "AI Model",
+        "response_quality": "Response Quality",
+        "category_specificity": "Category Specificity",
+        "reasoning_quality": "Reasoning Quality",
+        "document_features_match": "Document Features Match"
+    }
+    
+    # Add each factor to the chart data
+    for factor, value in confidence_data.items():
+        if factor != "overall":
+            display_name = factor_display_names.get(factor, factor.replace("_", " ").title())
+            chart_data.append({
+                "Factor": display_name,
+                "Value": value,
+                "Color": get_color(value)
+            })
+    
+    # Sort factors by display order
+    factor_order = ["AI Model", "Response Quality", "Category Specificity", "Reasoning Quality", "Document Features Match"]
+    chart_data = sorted(chart_data, key=lambda x: factor_order.index(x["Factor"]) if x["Factor"] in factor_order else 999)
+    
+    # Create DataFrame for Altair
+    df = pd.DataFrame(chart_data)
+    
+    # Create Altair chart
+    chart = alt.Chart(df).mark_bar().encode(
+        x=alt.X('Value:Q', scale=alt.Scale(domain=[0, 1])),
+        y=alt.Y('Factor:N', sort=None),  # Use the custom sort order
+        color=alt.Color('Color:N', scale=None)
+    ).properties(
+        height=30 * len(chart_data)
+    )
+    
+    # Display the chart
+    st.altair_chart(chart, use_container_width=True)
+    
+    # Display the values next to the chart
+    for item in chart_data:
+        st.write(f"{item['Factor']}: {item['Value']:.2f}")
+    
+    # Display explanations for each factor
+    st.write("### Confidence Factors Explained:")
+    st.markdown("""
+    * **AI Model**: Confidence reported directly by the AI model
+    * **Response Quality**: How well-structured the AI response was
+    * **Category Specificity**: How specific and definitive the category assignment is
+    * **Reasoning Quality**: How detailed and specific the reasoning is
+    * **Document Features Match**: How well document features match the assigned category
+    """)
+
 def display_categorization_results():
     """
     Display the results of document categorization.
@@ -567,6 +694,11 @@ def display_categorization_results():
                     confidence_text = "High" if confidence >= 0.8 else ("Medium" if confidence >= 0.6 else "Low")
                     
                     st.write(f"**Overall Confidence:** <span style='color:{confidence_color}'>{confidence_text} ({confidence:.2f})</span>", unsafe_allow_html=True)
+                    
+                    # Display confidence breakdown if available
+                    if "multi_factor_confidence" in result:
+                        with st.expander("Confidence Breakdown", expanded=True):
+                            display_confidence_visualization(result["multi_factor_confidence"])
                     
                     # Sequential Consensus Details
                     if "sequential_consensus" in result:
@@ -672,23 +804,6 @@ def display_categorization_results():
                     # Standard categorization details
                     else:
                         st.write("### Categorization Details")
-                        
-                        # Display confidence breakdown if available
-                        if "multi_factor_confidence" in result:
-                            st.write("#### Confidence Breakdown")
-                            confidence_factors = result["multi_factor_confidence"]
-                            
-                            # Create a DataFrame for the confidence factors
-                            factors_data = []
-                            for factor, value in confidence_factors.items():
-                                if factor != "overall":
-                                    factors_data.append({
-                                        "Factor": factor.replace("_", " ").title(),
-                                        "Value": value
-                                    })
-                            
-                            factors_df = pd.DataFrame(factors_data)
-                            st.dataframe(factors_df, use_container_width=True)
                         
                         # Display reasoning
                         st.write("#### Reasoning")
