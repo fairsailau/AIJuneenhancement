@@ -319,8 +319,9 @@ def review_categorization(
     # Generate a unique review session ID
     review_session_id = str(uuid.uuid4())
     
-    # Create a prompt that emphasizes critical comparison
-    review_prompt = (
+    high_confidence_threshold = 0.80
+
+    prompt_intro = (
         f"Review Session ID: {review_session_id}\n\n"
         f"You are an expert document reviewer tasked with evaluating document categorization results. "
         f"You have two categorizations of the same document to compare:\n\n"
@@ -334,19 +335,34 @@ def review_categorization(
         f"Category: {model1_category}\n"
         f"Confidence: {model1_confidence:.2f}\n"
         f"Their reasoning: {model1_reasoning}\n\n"
-        
-        f"Please examine the document again and critically evaluate both assessments. "
-        f"Your task is to provide a final categorization based on the document's content, "
-        f"not simply agreeing with either previous assessment.\n\n"
-        
+    )
+
+    prompt_evaluation_guidance = ""
+    if independent_confidence > high_confidence_threshold:
+        prompt_evaluation_guidance = (
+            f"IMPORTANT: Your independent assessment (Category: {independent_category}, Confidence: {independent_confidence:.2f}) was made with HIGH CONFIDENCE. \n"
+            f"You should only change your category if the other model's assessment provides CLEAR AND COMPELLING evidence that your initial assessment was incorrect. \n"
+            f"If you decide to change your category, you MUST explicitly state in your 'Assessment' and 'Reasoning' WHY your initial high-confidence assessment was flawed. \n"
+            f"Furthermore, if you change your category, carefully consider your new confidence score. It should generally NOT be higher than your initial high confidence of {independent_confidence:.2f}, unless the other model's evidence is exceptionally strong and unequivocally justifies such an increase. You MUST explain any significant change in your confidence level in your 'Reasoning'.\n\n"
+        )
+    else:
+        prompt_evaluation_guidance = (
+            f"Please critically evaluate both assessments. Your task is to provide a final categorization based on the document's content, not simply agreeing with either previous assessment. \n"
+            f"Pay attention to the reasoning and confidence of both your initial assessment and the other model's assessment. If you change your category, explain why. Also, justify your final confidence score in your reasoning.\n\n"
+        )
+
+    review_prompt = (
+        f"{prompt_intro}"
+        f"INSTRUCTIONS FOR YOUR REVIEW:\n"
+        f"{prompt_evaluation_guidance}"
+        f"After carefully considering these instructions and re-examining the document, provide your final assessment.\n\n"
         f"Available categories:\n{category_options_text}\n\n"
-        
         f"Respond in the following format:\n"
         f"Category: [your final category selection]\n"
         f"Confidence: [your final confidence score between 0.0 and 1.0]\n"
         f"Agreement: [Agree/Partially Agree/Disagree] with the other model's categorization\n"
-        f"Assessment: [Your critical assessment of the other model's categorization and reasoning]\n"
-        f"Reasoning: [Your detailed reasoning for your final categorization]"
+        f"Assessment: [Your critical assessment of the other model's categorization and reasoning, including detailed justification if you changed from a high-confidence initial assessment, explaining why it was flawed]\n"
+        f"Reasoning: [Your detailed reasoning for your final categorization and confidence level, including justification for any changes from your initial assessment and confidence]"
     )
 
     logger.info(f"Box AI Review Request for file {file_id} (model: {model}, review session: {review_session_id}):\n{review_prompt}")
