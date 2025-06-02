@@ -231,7 +231,9 @@ def document_categorization():
                     st.write(f"- {file['name']}")
         else:  # Box Folder
             # Folder selection
-            folder_id = st.text_input("Box Folder ID", value="323454589704")
+            default_folder_id_from_browser = st.session_state.get('current_folder_id', '0')
+            initial_folder_id_value = default_folder_id_from_browser if default_folder_id_from_browser != '0' else "0" # Or use a specific previous default if '0' is not desired when at root. For now, "0" is fine.
+            folder_id = st.text_input("Box Folder ID", value=initial_folder_id_value)
         
         # Start and cancel buttons
         col1, col2 = st.columns(2)

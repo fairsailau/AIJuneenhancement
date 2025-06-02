@@ -242,7 +242,7 @@ def apply_metadata_to_file_direct_worker(client, file_id, file_name, raw_ai_resp
                 logger.info(f'WORKER: File ID {file_id}: Existing metadata found for {full_scope}/{template_key}. Updating.')
                 md_update = MetadataUpdate()
                 for key_to_update, value_to_update in metadata_to_apply_final.items():
-                    md_update.add_update(MetadataUpdate.OP_REPLACE, f"/{key_to_update}", value_to_update)
+                    md_update.replace(f"/{key_to_update}", value_to_update)
                 
                 if md_update.get_updates_list():
                     updated_instance = metadata_instance.update(md_update)
