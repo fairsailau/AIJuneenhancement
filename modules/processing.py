@@ -301,10 +301,10 @@ def process_files_with_progress(files_to_process: List[Dict[str, Any]], extracti
 
         current_doc_type = None
         # Check for document categorization results directly in session_state
-        categorization_results = st.session_state.get('document_categorization', {}).get('results', {}) # Corrected to get nested results
-        cat_result = categorization_results.get(file_id)
+        categorization_results = st.session_state.get('document_categorization', {}).get('results', []) # Ensure it's a list
+        cat_result = next((r for r in categorization_results if r.get('file_id') == file_id), None)
         if cat_result:
-            current_doc_type = cat_result.get('category')
+            current_doc_type = cat_result.get('category') # Assuming 'category' key holds the doc type
             logger.debug(f"Found document type for file {file_id}: {current_doc_type}")
         
         try:
