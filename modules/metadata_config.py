@@ -66,7 +66,7 @@ def metadata_config():
             st.subheader('Document Type Specific Prompts')
             st.info('You can customize the freeform prompt for each document type.')
             document_types = set()
-            for file_id, result in st.session_state.document_categorization['results'].items():
+            for result in st.session_state.document_categorization["results"]:
                 document_types.add(result['document_type'])
             if 'document_type_prompts' not in st.session_state.metadata_config:
                 st.session_state.metadata_config['document_type_prompts'] = {}
@@ -88,7 +88,7 @@ def metadata_config():
             st.subheader('Document Type Template Mapping')
             st.info('You can map each document type to a specific metadata template.')
             document_types = set()
-            for file_id, result in st.session_state.document_categorization['results'].items():
+            for result in st.session_state.document_categorization["results"]:
                 document_types.add(result['document_type'])
             if not hasattr(st.session_state, 'document_type_to_template'):
                 from modules.metadata_template_retrieval import initialize_template_state
