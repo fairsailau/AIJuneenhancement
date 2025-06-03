@@ -772,8 +772,11 @@ def document_categorization():
                     logger.info(f"Updated st.session_state.selected_files with {len(files_to_process)} categorized files.")
 
                 # Display results
-                display_categorization_results()
+                # display_categorization_results() # Removed from here, will be called once at the end of tab1
     
+        # Single call to display results for tab1, covers both interactive and batch completion
+        display_categorization_results()
+
     with tab2:  # Settings Tab
         st.write("## Document Categorization Settings")
         
