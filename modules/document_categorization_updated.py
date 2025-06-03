@@ -149,6 +149,7 @@ def document_categorization():
     """
     Main function for document categorization tab.
     """
+    logger.info(f"DEBUG: document_categorization START - Full State: {st.session_state.get('document_categorization', {})}")
     st.title("Document Categorization")
 
     # --- Handle Batch Completion ---
@@ -221,6 +222,9 @@ def document_categorization():
         # bpm['error_count'] = 0 # Keep error / success counts for summary
         # bpm['successful_count'] = 0
         logger.info("Cleared 'categorization' batch results from batch_process_manager after handling completion. Other BPM fields retained for review until next batch starts.")
+        logger.info(f"DEBUG: Batch Complete - Results: {st.session_state.document_categorization.get('results')}")
+        logger.info(f"DEBUG: Batch Complete - Errors: {st.session_state.document_categorization.get('errors')}")
+        logger.info(f"DEBUG: Batch Complete - Is Categorized: {st.session_state.document_categorization.get('is_categorized')}")
         st.rerun() # Explicitly rerun to update UI
     # --- End Handle Batch Completion ---
     
@@ -919,6 +923,9 @@ def display_categorization_results():
     """
     Display the results of document categorization.
     """
+    logger.info(f"DEBUG: display_categorization_results START - Is Categorized: {st.session_state.document_categorization.get('is_categorized')}")
+    logger.info(f"DEBUG: display_categorization_results START - Result Count: {len(st.session_state.document_categorization.get('results', []))}")
+    logger.info(f"DEBUG: display_categorization_results START - Error Count: {len(st.session_state.document_categorization.get('errors', []))}")
     if not st.session_state.document_categorization["is_categorized"]:
         return
     
