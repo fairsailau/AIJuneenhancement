@@ -27,7 +27,7 @@ def initialize_batch_process_state():
         }
         logger.info("Batch Process Manager initialized in session state.")
 
-def start_new_batch(stage_name: str, files: list, stage_specific_config: dict = None,
+def start_new_batch(stage_name: str, files: list, stage_specific_config: dict = None, 
                     sub_batch_size: int = 1, api_delay: float = 0.5, batch_delay: float = 0.1):
     """
     Starts a new batch processing operation.
@@ -49,7 +49,7 @@ def start_new_batch(stage_name: str, files: list, stage_specific_config: dict = 
     bpm['sub_batch_size'] = sub_batch_size
     bpm['api_call_delay_seconds'] = api_delay
     bpm['sub_batch_delay_seconds'] = batch_delay
-
+    
     logger.info(f"Starting new batch for stage '{stage_name}'. Total files: {bpm['total_files']}, Sub-batch size: {sub_batch_size}.")
     st.rerun()
 
@@ -70,7 +70,7 @@ def record_batch_file_result(file_id: str, name: str, status: str, message: str 
         'message': message,
         'data': data if data is not None else {}
     })
-
+    
     if status.lower() == 'success':
         bpm['successful_count'] += 1
     else:
@@ -94,12 +94,12 @@ def cancel_current_batch():
 def run_batch_processing_iteration(stage_processor_fn):
     """
     Runs a single iteration of the batch processing loop.
-    This function is designed to be called repeatedly (e.g., via st.rerun)
+    This function is designed to be called repeatedly (e.g., via st.rerun) 
     until the batch is complete or cancelled.
 
     Args:
-        stage_processor_fn: A function that takes (file_info: dict, stage_config: dict)
-                            and processes a single file. It should return a dictionary
+        stage_processor_fn: A function that takes (file_info: dict, stage_config: dict) 
+                            and processes a single file. It should return a dictionary 
                             with {'status': 'success'/'error', 'message': '...', 'data': {...}}
                             or raise an exception.
     """
@@ -112,7 +112,7 @@ def run_batch_processing_iteration(stage_processor_fn):
     # Handle Inactive/Cancelled (Top)
     if not bpm['is_active'] or bpm['user_cancelled']:
         if bpm['user_cancelled'] and bpm['is_active']: # Ensure we only log and rerun once for cancellation
-            bpm['is_active'] = False
+            bpm['is_active'] = False 
             logger.info(f"Batch processing for stage '{bpm['current_stage']}' stopped due to user cancellation.")
             st.rerun()
         elif not bpm['is_active'] and not bpm['user_cancelled']: # Already inactive, no rerun needed unless state changed
@@ -128,7 +128,7 @@ def run_batch_processing_iteration(stage_processor_fn):
 
     # Sub-batch Loop
     bpm['processed_in_sub_batch'] = 0 # Reset for this iteration
-
+    
     for i in range(bpm['sub_batch_size']):
         if bpm['current_index'] >= bpm['total_files'] or bpm['user_cancelled']:
             break # Exit sub-batch loop if all files processed or cancelled
@@ -138,7 +138,7 @@ def run_batch_processing_iteration(stage_processor_fn):
         file_name = file_info.get('name', f"Unknown File {bpm['current_index'] + 1}")
 
         logger.info(f"Processing file {bpm['current_index'] + 1}/{bpm['total_files']}: {file_name} (ID: {file_id}) for stage '{bpm['current_stage']}'.")
-
+        
         try:
             result = stage_processor_fn(file_info, bpm['stage_config'])
             status = result.get('status', 'success') # Default to success if not specified
@@ -149,10 +149,10 @@ def run_batch_processing_iteration(stage_processor_fn):
             error_message = f"Error processing file {file_name} (ID: {file_id}): {str(e)}"
             logger.error(error_message, exc_info=True)
             record_batch_file_result(file_id, file_name, 'error', error_message, {'exception_type': type(e).__name__})
-
+        
         bpm['current_index'] += 1
         bpm['processed_in_sub_batch'] += 1
-
+        
         # API call delay, but not after the very last item of the entire batch or if cancelled
         if bpm['api_call_delay_seconds'] > 0 and bpm['current_index'] < bpm['total_files'] and not bpm['user_cancelled']:
             # Also, don't delay if this was the last item of the current sub-batch iteration

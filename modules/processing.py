@@ -42,7 +42,7 @@ def get_metadata_template_id(file_id, file_name, template_config):
     if 'document_categorization' in st.session_state and 'results' in st.session_state.document_categorization:
         cat_results_list = st.session_state.document_categorization.get('results', [])
         # Ensure file_id is compared as string if necessary, assuming file_id parameter is consistently typed
-        cat_result = next((r for r in cat_results_list if str(r.get('file_id')) == str(file_id)), None)
+        cat_result = next((r for r in cat_results_list if str(r.get('file_id')) == str(file_id)), None) 
         if cat_result:
             doc_type = cat_result.get('document_type') or cat_result.get('category')
             logger.info(f"TEMP_LOG: get_metadata_template_id - File: {file_name} ({file_id}), Derived doc_type: {doc_type}") # LOG 1
@@ -58,7 +58,7 @@ def get_metadata_template_id(file_id, file_name, template_config):
             return template_id_from_mapping
         else:
             logger.warning(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Doc_type '{doc_type}' found, but no template mapped in document_type_to_template. Will use direct template.") # LOG 6
-
+            
     elif doc_type:
          logger.warning(f"TEMP_LOG: get_metadata_template_id - File: {file_name}, Doc_type '{doc_type}' found, but st.session_state.document_type_to_template does not exist or is not an attribute.") # LOG 7
     else:

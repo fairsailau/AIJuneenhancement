@@ -31,7 +31,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
     # logger = logging.getLogger(__name__) # Already available at module level
     file_id = str(file_info['id'])
     file_name = file_info.get('name', f'File {file_id}')
-
+    
     try:
         logger.info(f"Batch processing categorization for {file_name} (ID: {file_id}) with mode: {stage_config.get('consensus_mode')}")
 
@@ -47,8 +47,8 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
             model = stage_config.get('single_model')
             if not model:
                 raise ValueError("Model not specified for Standard consensus mode in batch processing.")
-
-            # Note: Two-stage logic simplified here.
+            
+            # Note: Two-stage logic simplified here. 
             # A full implementation would mirror non-batch logic, possibly using categorize_document_detailed.
             if use_two_stage:
                  logger.warning(f"Two-stage categorization for Standard mode in batch is simplified. File: {file_name}")
@@ -58,7 +58,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
                  result_data = categorize_document(file_id, model, document_types_with_desc)
             else:
                 result_data = categorize_document(file_id, model, document_types_with_desc)
-
+            
             if result_data:
                 document_features = extract_document_features(file_id)
                 multi_factor_confidence = calculate_multi_factor_confidence(
@@ -74,7 +74,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
             models = stage_config.get('parallel_models')
             if not models:
                 raise ValueError("Models not specified for Parallel consensus mode in batch processing.")
-
+            
             model_results = []
             for model_name in models:
                 try:
@@ -87,7 +87,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
                     model_results.append(model_res)
                 except Exception as e_model:
                     logger.error(f"Error with model {model_name} for {file_name} in batch parallel: {str(e_model)}")
-
+            
             if model_results:
                 result_data = combine_categorization_results(model_results)
                 if result_data: # Ensure combine_categorization_results didn't return None
@@ -126,7 +126,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
         if result_data is None:
              raise Exception("Categorization returned no data.")
 
-        result_data['file_id'] = file_id
+        result_data['file_id'] = file_id 
         result_data['file_name'] = file_name
 
         return {'status': 'success', 'message': f"Categorized {file_name}", 'data': result_data}
@@ -159,7 +159,7 @@ def document_categorization():
        len(bpm.get('results', [])) > 0: # Ensure there are results to process
 
         logger.info("Handling completion of 'categorization' batch.")
-
+        
         # Initialize/clear main categorization results list
         if 'document_categorization' not in st.session_state:
             st.session_state.document_categorization = {'results': [], 'errors': [], 'is_categorized': False}
@@ -179,7 +179,7 @@ def document_categorization():
                     processed_files_for_selected_files.append({
                         'id': batch_item_result['data'].get('file_id', file_id_from_batch), # Use data's file_id if available
                         'name': batch_item_result['data'].get('file_name', file_name_from_batch), # Use data's file_name
-                        'type': 'file'
+                        'type': 'file' 
                     })
                 else:
                     logger.warning(f"Batch item {file_name_from_batch} was success but no data found.")
@@ -213,7 +213,7 @@ def document_categorization():
             st.warning(f"Batch categorization completed with {len(st.session_state.document_categorization['errors'])} errors out of {bpm.get('total_files')} files. Check results summary and detailed view.")
 
         # Reset batch manager fields for the completed 'categorization' stage
-        bpm['current_stage'] = None
+        bpm['current_stage'] = None 
         # bpm['files_to_process'] = [] # Keep files_to_process for a moment if user wants to see what was attempted
         bpm['results'] = [] # Clear results as they've been transferred
         # bpm['total_files'] = 0 # Keep total_files for reference of last batch size
@@ -428,7 +428,7 @@ def document_categorization():
             cancel_button = st.button("Cancel Categorization")
 
         st.markdown("---") # Separator before batch UI
-
+        
         # Get a reference to the batch manager state for convenience
         bpm = st.session_state.get('batch_process_manager', {}) # Use .get for safety before full init
 
@@ -436,7 +436,7 @@ def document_categorization():
         # UI for batch parameters - these will write to st.session_state.batch_process_manager when changed by other components or on next run
         # For this step, we'll just read them if they exist, or use defaults for the start_new_batch call.
         # Actual input fields for these can be part of a dedicated settings area or the display_batch_controls component later.
-        sub_batch_size_ui = bpm.get('sub_batch_size', 1)
+        sub_batch_size_ui = bpm.get('sub_batch_size', 1) 
         api_call_delay_seconds_ui = bpm.get('api_call_delay_seconds', 0.5)
         sub_batch_delay_seconds_ui = bpm.get('sub_batch_delay_seconds', 0.1)
         
@@ -449,7 +449,7 @@ def document_categorization():
                     folder = st.session_state.client.folder(folder_id).get()
                     items = folder.get_items()
                     files_for_batch = [
-                        {"id": item.id, "name": item.name, "type": item.type}
+                        {"id": item.id, "name": item.name, "type": item.type} 
                         for item in items if item.type == "file"
                     ]
                     if not files_for_batch:
@@ -463,9 +463,9 @@ def document_categorization():
                         current_disagreement_threshold = disagreement_threshold if consensus_mode == "Sequential Consensus" else 0.2
                         current_single_model = model if consensus_mode == "Standard" else None
                         current_parallel_models = models if consensus_mode == "Parallel Consensus" else None
-
+                        
                         stage_config = {
-                            'consensus_mode': consensus_mode,
+                            'consensus_mode': consensus_mode, 
                             'model1': current_model1,
                             'model2': current_model2,
                             'model3': current_model3,
@@ -473,10 +473,10 @@ def document_categorization():
                             'single_model': current_single_model,
                             'parallel_models': current_parallel_models,
                             'document_types_with_desc': st.session_state.document_types,
-                            'use_two_stage': use_two_stage,
-                            'confidence_threshold': confidence_threshold
+                            'use_two_stage': use_two_stage, 
+                            'confidence_threshold': confidence_threshold 
                         }
-
+                        
                         start_new_batch(
                             stage_name="categorization",
                             files=files_for_batch,
@@ -493,10 +493,10 @@ def document_categorization():
         if bpm.get('is_active', False) and bpm.get('current_stage') == "categorization":
             progress_val = bpm['current_index'] / bpm['total_files'] if bpm.get('total_files', 0) > 0 else 0
             st.progress(progress_val)
-
+            
             # More detailed status message
-            processed_in_sub_batch_val = bpm.get('processed_in_sub_batch',0)
-            sub_batch_size_val = bpm.get('sub_batch_size',1)
+            processed_in_sub_batch_val = bpm.get('processed_in_sub_batch',0) 
+            sub_batch_size_val = bpm.get('sub_batch_size',1) 
             current_file_name_display = ""
             if bpm.get('files_to_process') and bpm.get('current_index', 0) < len(bpm['files_to_process']):
                  current_file_name_display = bpm['files_to_process'][bpm['current_index']]['name']
@@ -518,13 +518,13 @@ def document_categorization():
             results_to_display = []
             for res in bpm['results']:
                 results_to_display.append({
-                    "File Name": res.get('name', 'N/A'),
-                    "Status": res.get('status', 'N/A'),
+                    "File Name": res.get('name', 'N/A'), 
+                    "Status": res.get('status', 'N/A'), 
                     "Message": res.get('message', '')
                 })
             if results_to_display:
                 st.dataframe(results_to_display, use_container_width=True)
-
+        
         st.markdown("---") # Separator after batch UI
 
         # Process categorization (Existing non-batch logic)
@@ -754,19 +754,19 @@ def document_categorization():
                     # Ensure files_to_process contains dictionaries with 'id', 'name', and 'type'
                     # This is already the case based on how files_to_process is constructed for folder mode:
                     # files_to_process = [
-                    #     {"id": item.id, "name": item.name, "type": item.type}
+                    #     {"id": item.id, "name": item.name, "type": item.type} 
                     #     for item in items if item.type == "file"
                     # ]
                     # And for selected files mode, it's also structured similarly:
                     # files_to_process = [
-                    #     {"id": file["id"], "name": file["name"], "type": file["type"]}
+                    #     {"id": file["id"], "name": file["name"], "type": file["type"]} 
                     #     for file in st.session_state.selected_files
                     # ]
                     # So, files_to_process should be suitable for direct assignment if it was populated.
 
                     st.session_state.selected_files = files_to_process
                     logger.info(f"Updated st.session_state.selected_files with {len(files_to_process)} categorized files.")
-
+                
                 # Display results
                 display_categorization_results()
     

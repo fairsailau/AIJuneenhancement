@@ -320,7 +320,7 @@ def review_categorization(
     review_session_id = str(uuid.uuid4())
     
     high_confidence_threshold = 0.80
-
+    
     prompt_intro = (
         f"Review Session ID: {review_session_id}\n\n"
         f"You are an expert document reviewer tasked with evaluating document categorization results. "
