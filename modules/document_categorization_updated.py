@@ -1088,17 +1088,17 @@ def display_categorization_results():
                                 st.write("No arbitration was needed")
                     
                     # Parallel Consensus Details
-                    elif "model_results" in result:
+                    elif "consensus_results" in result:
                         st.write("### Parallel Consensus Details")
                         
-                        if "consensus_info" in result:
-                            consensus = result["consensus_info"]
-                            st.write(f"**Agreement Level:** {consensus.get('agreement_level', 'Unknown')}")
-                            st.write(f"**Models in Agreement:** {consensus.get('models_in_agreement', 0)}")
-                            st.write(f"**Total Models:** {consensus.get('total_models', 0)}")
+                        # if "consensus_info" in result:
+                        #     consensus = result["consensus_info"]
+                        #     st.write(f"**Agreement Level:** {consensus.get('agreement_level', 'Unknown')}")
+                        #     st.write(f"**Models in Agreement:** {consensus.get('models_in_agreement', 0)}")
+                        #     st.write(f"**Total Models:** {consensus.get('total_models', 0)}")
                         
                         # Display individual model results
-                        for i, model_result in enumerate(result["model_results"]):
+                        for i, model_result in enumerate(result["consensus_results"]):
                             st.write(f"#### Model {i+1}: {model_result.get('model_name', 'Unknown')}")
                             st.write(f"**Category:** {model_result.get('document_type', 'Unknown')}")
                             st.write(f"**Confidence:** {model_result.get('confidence', 0):.2f}")
