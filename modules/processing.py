@@ -491,8 +491,13 @@ def process_files_with_progress(files_to_process: List[Dict[str, Any]], extracti
                     logger.error(f"No extraction function for freeform mode. Skipping file {file_name}.")
                     continue
                 
+                client = st.session_state.client
+                metadata_conf = st.session_state.get('metadata_config', {})
+                prompt = metadata_conf.get('freeform_prompt', "Extract key metadata including dates, names, amounts, and other important information.") # Default from metadata_config.py
+                ai_model = metadata_conf.get('ai_model', 'azure__openai__gpt_4o_mini') # Default from extract_freeform_metadata signature
+
                 # Perform the extraction
-                extracted_metadata = extraction_func(file_id=file_id)
+                extracted_metadata = extraction_func(client=client, file_id=file_id, prompt=prompt, ai_model=ai_model)
                 
                 # Build UI structure for freeform results with consistent format
                 fields_for_ui = {}
