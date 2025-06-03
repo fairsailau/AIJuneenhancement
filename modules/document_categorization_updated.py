@@ -221,7 +221,7 @@ def document_categorization():
         # bpm['error_count'] = 0 # Keep error / success counts for summary
         # bpm['successful_count'] = 0
         logger.info("Cleared 'categorization' batch results from batch_process_manager after handling completion. Other BPM fields retained for review until next batch starts.")
-        # st.rerun() # Consider if a rerun is needed here or if subsequent UI updates are sufficient
+        st.rerun() # Explicitly rerun to update UI
     # --- End Handle Batch Completion ---
     
     # Initialize session state for document categorization
