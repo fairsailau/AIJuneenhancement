@@ -159,6 +159,7 @@ def document_categorization():
        len(bpm.get('results', [])) > 0: # Ensure there are results to process
 
         logger.info("Handling completion of 'categorization' batch.")
+        st.session_state.document_categorization['is_categorized'] = True
 
         # Initialize/clear main categorization results list
         if 'document_categorization' not in st.session_state:
@@ -202,7 +203,6 @@ def document_categorization():
                 processed_files_for_selected_files.append({'id': file_id_from_batch, 'name': file_name_from_batch, 'type': 'file'})
 
         if st.session_state.document_categorization['results'] or st.session_state.document_categorization['errors']:
-            st.session_state.document_categorization['is_categorized'] = True
             if processed_files_for_selected_files:
                  st.session_state.selected_files = processed_files_for_selected_files
                  logger.info(f"Updated st.session_state.selected_files with {len(processed_files_for_selected_files)} files from completed batch.")
