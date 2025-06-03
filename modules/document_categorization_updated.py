@@ -657,7 +657,7 @@ def document_categorization():
 
                             if model_results:
                                 # Combine results from all models
-                                combined_result = combine_categorization_results(model_results)
+                                combined_result = combine_categorization_results(model_results, [dtype["name"] for dtype in st.session_state.document_types], models)
                                 
                                 # Add file info to result
                                 combined_result["file_id"] = file["id"]
