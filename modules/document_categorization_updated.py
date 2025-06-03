@@ -89,7 +89,7 @@ def batch_process_single_categorization_file(file_info: Dict[str, Any], stage_co
                     logger.error(f"Error with model {model_name} for {file_name} in batch parallel: {str(e_model)}")
 
             if model_results:
-                result_data = combine_categorization_results(model_results)
+                result_data = combine_categorization_results(model_results, valid_categories, models)
                 if result_data: # Ensure combine_categorization_results didn't return None
                     document_features = extract_document_features(file_id)
                     multi_factor_confidence = calculate_multi_factor_confidence(
