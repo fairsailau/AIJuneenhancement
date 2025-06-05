@@ -386,12 +386,20 @@ def calculate_multi_factor_confidence(
         "overall": 0.0
     }
 
-    # 1. Response Quality (Is the reasoning present and reasonably long?)
-    if reasoning and len(reasoning) > 30:
+    # 1. Response Quality
+    # Default value
+    factors["response_quality"] = 0.5
+
+    # If `assigned_category` is not "Other", `ai_reported_confidence` > 0,
+    # and `reasoning` exists (is not empty or just whitespace): score = 0.8
+    if assigned_category != "Other" and ai_reported_confidence > 0 and reasoning and reasoning.strip():
         factors["response_quality"] = 0.8
-    elif reasoning:
-        factors["response_quality"] = 0.5
-    else:
+
+    # If `reasoning` (case-insensitive) contains "could not determine" OR
+    # `reasoning` is empty or effectively empty (e.g., length < 10 characters): score = 0.2
+    # This condition takes precedence if also meeting the 0.8 criteria.
+    if (reasoning and "could not determine" in reasoning.lower()) or \
+       (not reasoning or len(reasoning.strip()) < 10):
         factors["response_quality"] = 0.2
 
     # 2. Category Specificity (Is the assigned category specific or 'Other'?)
@@ -400,37 +408,39 @@ def calculate_multi_factor_confidence(
     else:
         factors["category_specificity"] = 0.3
 
-    # 3. Reasoning Quality (Does reasoning mention keywords related to the category?)
-    # Simple keyword check - could be much more sophisticated
-    reasoning_lower = reasoning.lower()
-    category_keywords = assigned_category.lower().split()
-    keywords_found = sum(1 for keyword in category_keywords if keyword in reasoning_lower)
-    if keywords_found >= 1:
-        factors["reasoning_quality"] = 0.8
-    elif len(reasoning) > 50: # Longer reasoning might be better even without keywords
-        factors["reasoning_quality"] = 0.6
-    else:
-        factors["reasoning_quality"] = 0.4
+    # 3. Reasoning Quality
+    reasoning_score = 0.5  # Default value
 
-    # 4. Document Features Match (Simple rules based on extension/size - placeholder)
-    ext = document_features.get("file_extension", "")
-    size_kb = document_features.get("file_size_kb", 0)
-    feature_score = 0.5 # Default
-    if assigned_category == "Invoices" and ext in [".pdf", ".docx"] and size_kb < 1024:
-        feature_score = 0.7
-    elif assigned_category == "Sales Contract" and ext in [".pdf", ".docx"] and size_kb > 50:
-        feature_score = 0.7
-    elif assigned_category == "Financial Report" and ext in [".xlsx", ".pdf", ".csv"]:
-        feature_score = 0.6
-    factors["document_features_match"] = feature_score
+    if reasoning: # Check if reasoning is not None or empty before calling len() or lower()
+        reasoning_len = len(reasoning)
+        reasoning_lower = reasoning.lower()
+
+        # Score based on reasoning length
+        if reasoning_len > 100:
+            reasoning_score = 0.8
+        elif reasoning_len > 50:
+            reasoning_score = 0.6
+        else:
+            reasoning_score = 0.4
+
+        # Bonus for keywords
+        if "evidence" in reasoning_lower or "feature" in reasoning_lower:
+            reasoning_score += 0.1
+    else: # Handle cases where reasoning is None or empty
+        reasoning_score = 0.4 # Matches the lowest score for short/empty reasoning
+
+    factors["reasoning_quality"] = min(1.0, reasoning_score) # Ensure score does not exceed 1.0
+
+    # 4. Document Features Match (Simplified to a flat score)
+    factors["document_features_match"] = 0.5
 
     # 5. Overall Confidence (Weighted average)
     weights = {
         "ai_reported": 0.4,
-        "response_quality": 0.1,
+        "response_quality": 0.15,
         "category_specificity": 0.2,
         "reasoning_quality": 0.15,
-        "document_features_match": 0.15
+        "document_features_match": 0.1
     }
     overall_score = sum(factors[key] * weights[key] for key in weights)
     factors["overall"] = min(1.0, max(0.0, overall_score))
